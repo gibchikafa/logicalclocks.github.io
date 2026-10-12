@@ -235,7 +235,7 @@ Independent [feature, training and inference pipelines](concepts/fti.md), connec
 
 | Task | Start here |
 | --- | --- |
-| :material-rocket-launch-outline: Deploy | [AWS](setup_installation/aws/getting_started.md), [Azure](setup_installation/azure/getting_started.md), [GCP](setup_installation/gcp/getting_started.md), [on-prem](setup_installation/on_prem/contact_hopsworks.md), [Helm values](setup_installation/common/helm_chart_values.md) |
+| :material-rocket-launch-outline: Deploy | [AWS](setup_installation/aws/getting_started.md), [Azure](setup_installation/azure/getting_started.md), [GCP](setup_installation/gcp/getting_started.md), [on-prem](setup_installation/on_prem/contact_hopsworks.md), [Helm values][helm-chart-values-reference] |
 | :material-monitor-dashboard: Operate | [Administration](setup_installation/admin/index.md), [monitoring](setup_installation/admin/monitoring/grafana.md), [alerts](setup_installation/admin/alert.md), [HA and DR](setup_installation/admin/ha-dr/intro.md), [service operations](setup_installation/admin/operationLogs.md) |
 | :material-wrench-outline: Troubleshoot | [Model serving](user_guides/mlops/serving/troubleshooting.md), [Python deployments](user_guides/projects/python-deployment/troubleshooting.md), [online ingestion](user_guides/fs/feature_group/online_ingestion_observability.md), [Jupyter session capacity](user_guides/projects/jupyter/session_capacity_warnings.md) |
 | :material-arrow-up-circle-outline: Upgrade | [3.x to 4.0 migration](user_guides/migration/40_migration.md), [Airflow 3 upgrade](user_guides/projects/airflow/airflow3_upgrade.md), [Airflow 3 operator notes](setup_installation/admin/airflow3.md) |
@@ -256,7 +256,7 @@ Independent [feature, training and inference pipelines](concepts/fti.md), connec
 :material-tune:{ .hops-colophon-ico } Configure and query
 { .hops-colophon-cap }
 
-- [Helm chart values](setup_installation/common/helm_chart_values.md)
+- [Helm chart values][helm-chart-values-reference]
 - [Cluster configuration](setup_installation/admin/variables.md)
 - [Query engine (Trino)](user_guides/projects/trino/query_engine.md)
 - [Vector similarity search](user_guides/fs/vector_similarity_search.md)
@@ -1839,7 +1839,7 @@ Execute the following command to install the Hopsworks client library in your Py
     pip install "hopsworks[python]"
     ```
 
-Supported versions of Python: 3.10, 3.11, 3.12, 3.13 ([PyPI ↗](https://pypi.org/project/hopsworks/))
+Supported versions of Python: 3.10, 3.11, 3.12, 3.13, 3.14 ([PyPI ↗](https://pypi.org/project/hopsworks/))
 
 ### Profiles
 
@@ -9173,6 +9173,13 @@ If `pk2` is not provided, this returns feature values from the first feature gro
     )
     ```
 
+!!! attention "Behavior change for supplied and null keys in Python client 5.2"
+    The Python client now returns each serving key you pass in the entry in its slot of the vector, when the key is a feature of the vector and the lookup did not return it.
+    With `allow_missing=True`, an entry whose key matches no row returns `[99, None]` where it returned `[None, None]`, and the SQL client returns the key of a spine group instead of `None`.
+    A null key value is now treated as an omitted key by the REST client, which used to fail with HTTP 400.
+    Code that reads a null key slot as "no matching row" should check the other features instead.
+    With `allow_missing=False`, a missing feature still raises an exception.
+
 ### Retrieval with transformation
 
 If you have specified transformation functions when creating a feature view, you receive transformed feature vectors.
@@ -13507,49 +13514,71 @@ Source: https://docs.hopsworks.ai/latest/user_guides/fs/sharing/sharing/
 
 ## Introduction
 
-Hopsworks allows artifacts (such as feature groups and feature views) to be shared between projects. There are two main use cases for sharing features:
+Hopsworks allows artifacts (such as feature groups and feature views) to be shared between projects.
+There are two main use cases for sharing features:
 
-- **Cross-team collaboration:** When multiple teams work on the same Hopsworks deployment, each team typically has its own set of projects. If team A wants to leverage features built by team B, team B can share their feature groups with team A's project.
+- **Cross-team collaboration:** When multiple teams work on the same Hopsworks deployment, each team typically has its own set of projects.
+  If team A wants to leverage features built by team B, team B can share their feature groups with team A's project.
 
-- **Environment isolation:** By creating separate projects for different stages of the development lifecycle (development, testing, and production), you can ensure that changes in the development project don't impact production features. At the same time, you can share production features to use them when developing new models or additional features.
+- **Environment isolation:** By creating separate projects for different stages of the development lifecycle (development, testing, and production), you can ensure that changes in the development project don't impact production features.
+  At the same time, you can share production features to use them when developing new models or additional features.
+
+## Seeing what is shared
+
+Open the project that owns the feature store.
+In `Project Settings`, the `Feature store sharing` section lists everything the feature store shares, and a sentence at the top summarizes it.
+Only data owners can share, unshare and revoke, so only they get the `Share` button and the trash icons.
+Observers see the same lists read-only, and other members see a note instead, because only data owners and observers can read a project's sharing.
+
+The `Projects` tab lists every project the feature store is shared with.
+A project marked `Entire feature store` can read every feature group, including feature groups created after the share.
+Any other project lists the feature groups shared with it, with either `all features` or the features it can read.
+
+<p align="center">
+  <figure>
+    <img src="../../../../assets/images/guides/project/sharing/share_with_other_projects.png" alt="The Projects tab of the Feature store sharing section, with one project sharing the entire feature store and one with two feature groups">
+    <figcaption>Feature store sharing section in Project Settings</figcaption>
+  </figure>
+</p>
+
+The `Restricted users` tab lists every member with the [Feature store restricted][feature-store-restricted] role who has been granted access, with the feature groups and features each of them can read.
+
+<p align="center">
+  <figure>
+    <img src="../../../../assets/images/guides/fs/sharing/feature_store_sharing_restricted_users.png" alt="The Restricted users tab of the Feature store sharing section, with one user granted two feature groups">
+    <figcaption>Restricted users granted access to feature groups</figcaption>
+  </figure>
+</p>
+
+Each feature group name links to that feature group's `Sharing` tab.
 
 ## Sharing the entire feature store
 
 You can share your project's entire feature store with another project, granting read-only access to all feature groups.
 
-### Step 1: Navigate to sharing settings
+### Step 1: Open the share dialog
 
-Open the project containing the feature store you want to share. In `Project Settings`, navigate to the `Shared with other projects` section.
-
-<p align="center">
-  <figure>
-    <img src="../../../../assets/images/guides/project/sharing/share_with_other_projects.png" alt="Share Project">
-    <figcaption>Shared with other projects section in Project Settings</figcaption>
-  </figure>
-</p>
+In `Project Settings`, click `Share` in the `Feature store sharing` section.
 
 ### Step 2: Share the feature store
 
-Click `Share feature store` to open the sharing dialog, then select the target project.
+In `With a project`, select the target project, keep `The entire feature store, including feature groups created later` selected, and click `Share`.
 
 <p align="center">
   <figure>
-    <img src="../../../../assets/images/guides/project/sharing/share_project_dialog.png" alt="Share Project Dialog">
-    <figcaption>Share feature store dialog</figcaption>
+    <img src="../../../../assets/images/guides/project/sharing/share_project_dialog.png" alt="The share dialog with a target project selected and the entire feature store option checked">
+    <figcaption>Share the entire feature store</figcaption>
   </figure>
 </p>
 
 !!! note "Read-only access"
-    Shared feature stores are always read-only. Members of the target project cannot modify any data in the shared feature store.
+    Shared feature stores are always read-only.
+    Members of the target project cannot modify any data in the shared feature store.
 
-After clicking `Share`, the feature store appears under the `Shared with other projects` section.
+A project holds either the entire feature store or a set of individual feature groups, not both, because the entire feature store already includes every feature group.
+A project that already has feature groups shared with it is listed in the dialog but cannot be selected; unshare those feature groups first.
 
-<p align="center">
-  <figure>
-    <img src="../../../../assets/images/guides/project/sharing/list_of_shared_projects.png" alt="List of projects this project is shared with">
-    <figcaption>List of projects the feature store is shared with</figcaption>
-  </figure>
-</p>
+After clicking `Share`, the project appears in the `Projects` tab marked `Entire feature store`.
 
 ### Using the API to share the feature store
 
@@ -13573,7 +13602,8 @@ fs.unshare("target_project")
 
 ## Sharing a feature group with selected features
 
-For more granular control, you can share individual feature groups and select which features to expose. This allows you to share specific data without granting access to your entire feature store.
+For more granular control, you can share individual feature groups and select which features to expose.
+This allows you to share specific data without granting access to your entire feature store.
 
 ### Step 1: Navigate to the feature group
 
@@ -13581,52 +13611,57 @@ In the `Feature Groups` section, select the feature group you want to share and 
 
 <p align="center">
   <figure>
-    <img src="../../../../assets/images/guides/project/sharing/share_feature_group.png" alt="Share Feature Group">
+    <img src="../../../../assets/images/guides/project/sharing/share_feature_group.png" alt="The Sharing tab of a feature group that is not shared yet, with the Share and Grant access buttons">
     <figcaption>Feature group sharing tab</figcaption>
   </figure>
 </p>
 
+You can also start from `Project Settings`: click `Share` in the `Feature store sharing` section, select `One feature group, entirely or some of its features`, and pick the feature group.
+
 ### Step 2: Share the feature group
 
-Click `Share` to open the sharing dialog. You can share with either a project or an individual user with `Feature store restricted` role.
+You can share with either a project or an individual user with the [Feature store restricted][feature-store-restricted] role.
+Under `Features to share`, all features are selected; clear the ones the target should not read.
+The primary key and the event time are always shared, because the target needs them to join the feature group and to make point-in-time correct reads.
 
 === "Share with a project"
 
-    Select `Share with Project`, choose the target project, and select which features to share using `Select the features to share`.
+    Click `Share`, select the target project in `With a project`, choose the features, and click `Share`.
 
     <p align="center">
       <figure>
-        <img src="../../../../assets/images/guides/project/sharing/share_feature_group_dialog_project.png" alt="Share Feature Group with Project Dialog">
-        <figcaption>Share feature group with project dialog</figcaption>
+        <img src="../../../../assets/images/guides/project/sharing/share_feature_group_dialog_project.png" alt="The share dialog of a feature group with a target project selected and one feature cleared">
+        <figcaption>Share a feature group with a project</figcaption>
       </figure>
     </p>
 
-    After clicking `Share`, the project appears under the `Shared with projects` section.
+    The project appears under `Shared with projects` on the feature group's `Sharing` tab, and in the `Projects` tab of `Project Settings`.
 
     <p align="center">
       <figure>
-        <img src="../../../../assets/images/guides/project/sharing/list_of_projects_feature_group_shared_with.png" alt="List of projects this Feature Group is shared with">
-        <figcaption>List of projects the feature group is shared with</figcaption>
+        <img src="../../../../assets/images/guides/project/sharing/list_of_projects_feature_group_shared_with.png" alt="The Shared with projects card listing one project that can read all features">
+        <figcaption>Projects the feature group is shared with</figcaption>
       </figure>
     </p>
 
 === "Share with a user"
 
-    Select `Share with User`, choose a user with the [Feature store restricted][feature-store-restricted] role, and select which features to share.
+    Click `Grant access`, select the user in `With a user`, choose the features, and click `Share`.
+    The list offers the project members with the [Feature store restricted][feature-store-restricted] role.
 
     <p align="center">
       <figure>
-        <img src="../../../../assets/images/guides/project/sharing/share_feature_group_dialog_user.png" alt="Share Feature Group with User Dialog">
-        <figcaption>Share feature group with user dialog</figcaption>
+        <img src="../../../../assets/images/guides/project/sharing/share_feature_group_dialog_user.png" alt="The share dialog of a feature group with a restricted user selected and one feature cleared">
+        <figcaption>Grant a restricted user access to a feature group</figcaption>
       </figure>
     </p>
 
-    After clicking `Share`, the user appears under the `Users with restricted access` section.
+    The user appears under `Users with restricted access` on the feature group's `Sharing` tab, and in the `Restricted users` tab of `Project Settings`.
 
     <p align="center">
       <figure>
-        <img src="../../../../assets/images/guides/project/sharing/list_of_users_feature_group_shared_with.png" alt="List of users this Feature Group is shared with">
-        <figcaption>List of users the feature group is shared with</figcaption>
+        <img src="../../../../assets/images/guides/project/sharing/list_of_users_feature_group_shared_with.png" alt="The Users with restricted access card listing one user and the features granted to them">
+        <figcaption>Users with restricted access to the feature group</figcaption>
       </figure>
     </p>
 
@@ -13672,13 +13707,27 @@ Click `Share` to open the sharing dialog. You can share with either a project or
     fg.revoke_restricted_access("restricted_user@example.com")
     ```
 
+## Unsharing
+
+In the `Feature store sharing` section of `Project Settings`, click the trash icon next to what you want to stop sharing:
+
+- Next to a project marked `Entire feature store`, to unshare the entire feature store from that project.
+- Next to a feature group in the `Projects` tab, to unshare that feature group from that project.
+- Next to a feature group in the `Restricted users` tab, to revoke that user's access to it.
+
+Feature views and training data built on the unshared data stop working for the project or user that loses access, so the dialog asks you to type `confirm` first.
+The same trash icons are on a feature group's `Sharing` tab.
+
+From the API, use `fs.unshare`, `fg.unshare` and `fg.revoke_restricted_access` as shown above.
+
 ## Using shared features
 
 Once features have been shared with your project, you can access them through the UI or the API.
 
 ### Using the UI
 
-Navigate to the project that has access to shared features. In the `Feature Groups` section, use the dropdown in the upper right corner to select which feature store to view.
+Navigate to the project that has access to shared features.
+In the `Feature Groups` section, use the dropdown in the upper right corner to select which feature store to view.
 
 <p align="center">
   <figure>
@@ -16483,8 +16532,9 @@ A **mountable secret** is a named bundle of files that belongs to your project.
 You upload the files once, then refer to the bundle by name from a catalog property, and Hopsworks substitutes the real location when the catalog is written for Trino.
 The files are stored where project members cannot read or write them directly, and a catalog can only ever reach its own project's bundles.
 
-Only a project Data Owner can list, create or delete mountable secrets.
+Only a project Data Owner can list, create or delete a project's mountable secrets.
 Through the API the same endpoints need an API key with the `MOUNTABLE_SECRET` scope.
+Private catalogs use mountable secrets that belong to your account instead, described in [Mountable secrets for private catalogs][mountable-secrets-for-private-catalogs].
 
 ## Creating a bundle
 
@@ -16606,6 +16656,27 @@ connection-password=${HOPSWORKS_SECRET:oracle_password}
 
 Take the host, port and `service_name` from the alias's entry in the wallet's `tnsnames.ora`, and drop `retry_delay`, which means nothing once `retry_count` is zero.
 A catalog can keep this form, and doing so records which consumer group it connects to instead of leaving it to an alias name.
+
+## Mountable secrets for private catalogs
+
+A [private catalog][private-catalogs] follows its owner into every project they are a member of, so it cannot reference a project's bundles: it would carry them into the owner's other projects.
+It references bundles that belong to your account instead.
+
+Open **Account Settings**, then **Secrets**, and use the **Mountable secrets** section below your secrets.
+Creating, listing and deleting work as for a project's bundles, and the same limits apply, counted per account rather than per project.
+
+<figure>
+  <img src="../../../../assets/images/guides/mountable_secrets/account-mountable-secrets.png" alt="Mountable secrets on the account Secrets page" />
+  <figcaption>Bundles that belong to your account, for use by your private catalogs from any project</figcaption>
+</figure>
+
+A private catalog references your bundles with the same `${HOPSWORKS_MOUNT:<bundle>}` forms, and a project catalog cannot reference them.
+Names, sizes, hashes and timestamps of your bundles are visible to you alone.
+The same caution applies as for a project's bundles: where the cluster runs a Trino test coordinator, every mountable secret on it is readable from that coordinator.
+
+Through the API, your account's bundles are at `/users/mountable-secrets`, with the same operations as a project's and an API key with the `MOUNTABLE_SECRET` scope.
+
+When your account is deleted, your bundles are deleted with it.
 
 ## When the feature is unavailable
 
@@ -17298,8 +17369,32 @@ jobs, Jupyter and the terminal. This is how you get a CLI tool or a JavaScript d
 environment.
 
 Open the **Installed npm Libraries** tab beside the Python one and use **Install npm package**.
+A base environment is immutable, so on one the tab offers **Clone env** instead, and **Install npm package** opens the same clone dialog; the clone then opens on its npm tab with the install dialog up.
 Installed npm packages are listed there and can be uninstalled the same way, so an environment
 records what it carries rather than accumulating changes nobody can see.
+
+The install list, the package.json and git imports below, and the SDK methods for them need Hopsworks 5.2 or later; the `hopsworks` package of the same release has them.
+The dialog builds one install list and installs it as one operation and one build.
+Fill the list from the **Registry** and **package.json** tabs, in any combination, then press **Install**; the **Git repository** tab installs on its own.
+While it runs, a list of several packages shows as a single entry named `npm-install-...` with the packages on its row; once the build has finished, the installed packages replace it in the listing, each with its own entry that can be uninstalled on its own.
+If the build fails, the single entry stays with the error, and retrying or deleting it applies to the whole list.
+A second install started while a build is running waits for it and then runs as its own build.
+
+- **Registry** searches the configured registry for one package and version at a time and adds it to the list.
+- **package.json** installs what a `package.json` depends on, at exact versions.
+  Pick the file from the project, or upload it from your computer into the project's `Resources`, and the lockfile next to it when there is one: `package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock` (classic and Berry), `pnpm-lock.yaml` or `bun.lock`.
+  Versions pinned in `package.json` stand; where a lockfile is given its recorded versions win, because they are what the project actually ran; ranges and dist-tags without a lockfile entry resolve to the newest matching release in the registry.
+  `devDependencies` are left out unless you tick **Include devDependencies**.
+  Each dependency is shown with what it resolved to, or with the reason it was skipped: workspace siblings, `npm:` aliases, git, file and URL dependencies are not registry packages and cannot be installed this way.
+  Optional dependencies start unticked.
+  pnpm and Bun catalogs (`catalog:` specs) are resolved from the lockfile, `pnpm-workspace.yaml` or the root `package.json`.
+  A binary `bun.lockb` is not read; run `bun install --save-text-lockfile` to get a `bun.lock` the import can use.
+- **Git repository** reads the `package.json` files of a repository at a branch, tag or commit, resolves them the same way against the nearest lockfile, and installs what resolved as soon as the repository has been read, as its own build.
+  It skips the install list: make the choices before reading, with **Include devDependencies**, **Include optionalDependencies** and **Also install the repository itself**, which installs the repository as a package under the name its `package.json` declares, pinned to the commit read.
+  A monorepo installs the dependencies of every workspace; give the **package.json path** (for example `apps/web`) to read just that one, which also skips the rest of a large repository.
+  A dependency that cannot be resolved stops the install with the reason, so a `package.json` or lockfile can be fixed first.
+  Private repositories use the git providers configured under your account settings.
+  Installing the repository itself runs npm; a repository that needs yarn, pnpm or Bun to build is still attempted.
 
 What the platform accepts:
 
@@ -17317,6 +17412,32 @@ an environment and install your own version there instead.
 
 Packages come from the registry the cluster is configured to use. Ask your administrator if you
 need an internal registry; it is a cluster-wide setting rather than a per-environment one.
+
+From the Python SDK, the same three paths are `install_npm`, `install_npm_from_package_json` and `install_npm_from_git`:
+
+```python
+import hopsworks
+
+
+project = hopsworks.login()
+env = project.get_environment_api().get_environment("my_custom_environment")
+
+# A list, one build.
+env.install_npm(["express@4.19.2", "lodash@4.17.21"], flags=["--no-fund"])
+
+# A package.json and its lockfile, local or in the project; devDependencies opt in.
+env.install_npm_from_package_json("package.json", lockfile_path="pnpm-lock.yaml")
+
+# A repository's dependencies, plus the repository itself pinned to the commit.
+env.install_npm_from_git(
+    "https://github.com/acme/mytool", ref="main", install_repository=True
+)
+
+# One package of a monorepo, by the path of its package.json.
+env.install_npm_from_git("https://github.com/acme/mono", path="packages/cli")
+```
+
+`resolve_npm_package_json` and `inspect_npm_git` return what would be installed without installing it.
 
 !!! note "Same name in both ecosystems"
     A name can exist on both PyPI and npm. The two are tracked separately, so installing `requests`
@@ -20904,7 +21025,7 @@ The create dialog lets you choose the app type, source, runtime environment, app
 
 | Setting | Typical value |
 | --- | --- |
-| App type | `STREAMLIT` or `CUSTOM` |
+| App type | `STREAMLIT`, `FLASK`, `GRADIO`, `NODEJS` or `CUSTOM` |
 | Proxy routing mode | `Root routing` for new apps, `Compatibility prefix` for legacy apps |
 | App base path | `/` for the app root, `/myapp` for a subpath |
 | Readiness probe path | Leave empty to use the platform default |
@@ -20916,9 +21037,13 @@ The create dialog lets you choose the app type, source, runtime environment, app
 
 ### App types
 
+The Flask, Gradio and Node.js types need Hopsworks 5.2 or later.
+
 - **Streamlit** apps are the default choice for dashboards and interactive ML UIs.
-- **Custom** apps are any web service that listens on `APP_PORT`.
-  Common choices are Flask, FastAPI, Gradio, and JavaScript frameworks such as Express.
+- **Flask**, **Gradio** and **Node.js** apps are started from their app file, like Streamlit, with a command Hopsworks generates, and listen on the configured port like a custom app.
+  Flask and Gradio take a `.py` file; Node.js takes a `.js`, `.mjs`, `.cjs`, `.ts` or `.mts` file.
+- **Custom** apps are any web service that listens on `APP_PORT`, started with the entrypoint command you write.
+  Common choices are FastAPI, Django, Panel, and JavaScript frameworks that need their own command.
 
 Use `App base path` to choose where Hopsworks mounts the app.
 Set it to `/` for a root-based app or `/myapp` for a subpath.
@@ -20933,8 +21058,8 @@ The compatibility mode is only for migrating older apps.
   This is useful when you want a proper Git-backed CI/CD flow and when you want local file edits not to affect a running production app.
   The deployed app only sees the repository contents that are present when it starts, so changes in your working tree stay local until you commit, push, and redeploy.
 
-For Streamlit apps, a project file must be a `.py` file.
-For Git-backed Streamlit apps, you also need to provide the entrypoint script relative to the repository root.
+For Streamlit, Flask, Gradio and Node.js apps, the app file must have the extension of its type.
+For Git-backed apps of those types, you also need to provide the entrypoint script relative to the repository root.
 For custom apps, the entrypoint command is required and the app file is optional.
 
 #### Auto-redeploy on new commits
@@ -21001,6 +21126,67 @@ Hopsworks manages the mount prefix for you, so Streamlit apps can stay root-base
 If the app is Git-backed, the entrypoint script is relative to the repository root.
 The default readiness probe for Streamlit is `/_stcore/health`.
 
+### Flask apps
+
+Flask apps are started with `flask --app <file> run --host 0.0.0.0 --port $APP_PORT`, so the file needs an `app` object, or an `app.py` style factory Flask can find.
+Hopsworks serves the app at its root, so define routes at `/` and `/health`.
+The proxy sends `X-Forwarded-Prefix` and the app also gets `APP_PUBLIC_PATH`; an app that builds absolute links can wrap itself in `ProxyFix(app.wsgi_app, x_prefix=1)` to generate them with the public path.
+
+```python
+from flask import Flask, jsonify
+from werkzeug.middleware.proxy_fix import ProxyFix
+
+
+app = Flask(__name__)
+app.wsgi_app = ProxyFix(app.wsgi_app, x_prefix=1)
+
+
+@app.get("/health")
+def health():
+    return jsonify(status="ok")
+
+
+@app.get("/")
+def home():
+    return jsonify(status="ready")
+```
+
+### Gradio apps
+
+A Gradio app is run as a plain script, so it has to call `launch()` itself.
+Leave the host, port and root path to Hopsworks: it sets `GRADIO_SERVER_NAME`, `GRADIO_SERVER_PORT` and `GRADIO_ROOT_PATH`, which `launch()` reads, so the app listens on the configured port and its asset and API URLs resolve through the proxy.
+A `server_port` or `root_path` hardcoded in `launch()` overrides those variables and breaks the readiness probe.
+
+```python
+import gradio as gr
+
+
+def greet(name):
+    return f"Hello {name}!"
+
+
+demo = gr.Interface(fn=greet, inputs="text", outputs="text")
+
+if __name__ == "__main__":
+    demo.launch()
+```
+
+### Node.js apps
+
+A Node.js app is run with `node <file>` and gets `PORT` and `HOST`, the Express convention.
+TypeScript entry files run through Node's built-in type stripping, so they need no build step for plain type annotations.
+Dependencies are not installed at start: install them into the environment as npm packages, which is what the package.json import in the environment's npm tab is for.
+The `@hopsworks/app` module the image ships gives the app its project secrets and database access.
+
+```javascript
+import express from "express";
+
+const app = express();
+app.get("/health", (req, res) => res.json({ status: "ok" }));
+app.get("/", (req, res) => res.json({ status: "ready" }));
+app.listen(process.env.PORT, process.env.HOST ?? "0.0.0.0");
+```
+
 ### Custom apps
 
 Custom apps should bind to `0.0.0.0` and use the injected `APP_PORT`.
@@ -21038,11 +21224,13 @@ if __name__ == "__main__":
 For new apps, use `App base path` in the UI or API and let Hopsworks handle the browser mount prefix.
 Keep `Proxy routing mode` set to `Root routing` for new apps.
 
+Flask, Gradio and Node.js apps always use root routing; the compatibility prefix is for custom and Streamlit apps written against the old proxy.
+
 Examples:
 
 - FastAPI: `@app.get("/health")`
 - Flask: `Blueprint(..., url_prefix="/")`
-- Gradio: `demo.launch(..., root_path=None)`
+- Gradio: `demo.launch()` with the root path left to `GRADIO_ROOT_PATH`
 - Express: `app.use("/", router)`
 
 If you are migrating an older app that still depends on `APP_BASE_URL_PATH`, keep the legacy pattern only until the app code can move to root-based routing.
@@ -21059,19 +21247,140 @@ The platform injects app-specific variables such as:
 
 - `APP_BASE_URL_PATH` for legacy prefix-mode apps only
 - `APP_PORT`
+- `APP_PUBLIC_PATH`, the browser path the app is served at, for apps that build absolute links
+- `APP_ENTRYPOINT_SCRIPT` for Git-backed apps started from a file
 - `STREAMLIT_BASE_URL_PATH`
 - `STREAMLIT_PORT`
+- `GRADIO_SERVER_NAME`, `GRADIO_SERVER_PORT` and `GRADIO_ROOT_PATH` for Gradio apps
+- `PORT` and `HOST` for Node.js apps; these two are not reserved, so an app can set its own
 - `APP_FILE`
 - `APP_PATH`
 - `APP_KIND`
 - `APP_ARGS`
 
-Git-backed apps also receive the Git URL, provider, branch, and Streamlit entrypoint script.
+Git-backed apps also receive the Git URL, provider and branch, and the entrypoint script for every kind started from a file.
 
 `APP_BASE_URL_PATH` is only injected for legacy prefix-mode apps during migration.
 
 Some runtime names are reserved by the platform and cannot be overridden in the UI.
 That includes the app-path and routing variables above, plus other platform-managed names that start with `HOPS_`, `HOPSWORKS_`, `HOPSFS_`, or `AGENT_`.
+
+## Database and feature store access
+
+Every app can reach the project's feature store data from inside the pod:
+
+- the project's **online feature store database** on RonDB (MySQL protocol), where the online feature group tables live and where the app can keep its own tables: sessions, settings, agent memory, job results. This is on by default and controlled by **Database access** in the create dialog, `db_access` in the SDK and `--no-db-access` in the CLI;
+- the project's **offline feature groups**. A Python app reads them with the Hopsworks Python SDK, as any other Hopsworks client does: [feature group](../../fs/feature_group/index.md) reads and [feature view](../../fs/feature_view/batch-data.md) batch data. When Trino is enabled on the cluster, the app also gets the [Trino query engine](../trino/query_engine.md) as an SQL path to the same tables, which is what an app in another language uses. This does not depend on the database access flag: an app created with `db_access=False` still gets the Trino variables.
+
+The database is created on demand the first time an app with database access starts, so it works in a project that never created an online feature group. The app finds everything in its environment; nothing has to be configured.
+
+| Variable | Value |
+| --- | --- |
+| `MYSQL_HOST`, `MYSQL_PORT` | the online feature store MySQL server |
+| `MYSQL_DB` | the project database, the project name in lowercase |
+| `MYSQL_USER` | the MySQL user of the person who **started** the app |
+| `MYSQL_PASSWORD_SECRET_NAME` | the Hopsworks secret holding that user's password |
+| `TRINO_HOST`, `TRINO_PORT` | the Trino coordinator (HTTPS), when Trino is enabled |
+| `TRINO_USER` | the Trino user of the person who started the app, `<project>__<username>` |
+| `TRINO_PASSWORD_SECRET_NAME` | the Hopsworks secret holding that user's Trino password |
+| `TRINO_SCHEMA` | the project's offline feature store schema, `<project>_featurestore` |
+| `LIBHDFS_ROOT_CA_BUNDLE`, `NODE_EXTRA_CA_CERTS` | the cluster CA as a PEM file, so any HTTP client can verify the Hopsworks REST API and the Trino coordinator |
+
+Passwords are never placed in the environment. They are private secrets of the user who started the app, and the app reads them with its own credentials, through the Python SDK or the REST API. The privileges follow that user's project role: an app started by a Data Owner can create tables and write, an app started by a Data Scientist has read-only access. There is no `TRINO_CATALOG` because the catalog depends on each feature group's format: `delta` for Delta feature groups, `hudi` for Hudi ones.
+
+The variables are listed on the app details page under **Environment variables**, next to the per-app ones.
+
+### Python
+
+Read offline feature groups with the Hopsworks Python SDK first. It is what the rest of the platform uses, it knows the feature group's format and location, and a feature view adds point-in-time joins and the model's transformations, so a dashboard and the model it shows stay consistent.
+
+```python
+import hopsworks
+
+
+project = hopsworks.login()  # in-cluster: no prompt
+fs = project.get_feature_store()
+
+# Offline feature group: a DataFrame, filtered and projected on the server side
+transactions = fs.get_feature_group("transactions", version=1)
+recent = (
+    transactions.select(["cc_num", "amount", "event_time"])
+    .filter(transactions.event_time >= "2025-01-01")
+    .read()
+)
+
+# Feature view: batch data with the point-in-time joins and transformations of the model
+fv = fs.get_feature_view("fraud_model", version=1)
+batch = fv.get_batch_data(start_time="2025-01-01", end_time="2025-02-01")
+```
+
+The online database is for the app's own tables and for primary-key lookups on the online feature group tables:
+
+```python
+import os
+
+import pymysql
+
+password = project.get_secrets_api().get(os.environ["MYSQL_PASSWORD_SECRET_NAME"])
+conn = pymysql.connect(
+    host=os.environ["MYSQL_HOST"],
+    port=int(os.environ["MYSQL_PORT"]),
+    user=os.environ["MYSQL_USER"],
+    password=password,
+    database=os.environ["MYSQL_DB"],
+)
+```
+
+Create the app's own tables with an explicit `ENGINE=NDBCLUSTER`, a primary key, and an `app_` prefix so they never collide with feature group tables (`<feature_group>_<version>`). Write features through `feature_group.insert()`, not straight into the online tables; reading them with SQL is fine.
+
+Trino is an extra option for a Python app: ad-hoc SQL over the offline tables, a join with another Trino catalog, or a query the SDK does not express. The SDK wraps the connection:
+
+```python
+trino = project.get_trino_api().connect(
+    catalog="delta", schema=os.environ["TRINO_SCHEMA"]
+)
+cursor = trino.cursor()
+cursor.execute(
+    "SELECT * FROM transactions_1 WHERE event_time >= DATE '2025-01-01' LIMIT 100"
+)
+rows = cursor.fetchall()
+```
+
+### JavaScript
+
+A [custom app](#custom-apps) can run Node.js: the `python-app-pipeline` environment ships Node and the `@hopsworks/app` module, which turns the variables above into ready-to-use connections. Import it from any app without adding it to `package.json`.
+
+```js
+import mysql from "mysql2/promise";
+import { mysqlConfig, trinoClient, query, getSecret } from "@hopsworks/app";
+
+// Online feature store / the app's own tables
+const pool = mysql.createPool({ ...(await mysqlConfig()), connectionLimit: 5 });
+const [rows] = await pool.execute("SELECT * FROM transactions_1 WHERE cc_num = ?", [ccNum]);
+
+// Offline feature groups through Trino; the catalog is the feature group's format
+const trino = await trinoClient({ catalog: "delta" });
+const recent = await query(trino,
+  "SELECT cc_num, amount, event_time FROM transactions_1 WHERE event_time >= DATE '2025-01-01' LIMIT 100");
+
+// Any other secret of the user who started the app
+const apiKey = await getSecret("openai_api_key");
+```
+
+`mysqlConfig()` returns `{ host, port, user, password, database }` for `mysql2`, `mysql` or `knex`. `trinoClient()` returns a client authenticated as the starting user that speaks the [Trino REST protocol](https://trino.io/docs/current/develop/client-protocol.html); `query()` collects a result as an array of row objects and `streamQuery()` yields rows page by page for large results, cancelling the query if you stop early. Integers above 2^53 come back as `BigInt`, so identifiers are never rounded. Both resolve the password once per process from the Hopsworks secret, and TLS to the platform works out of the box through `NODE_EXTRA_CA_CERTS`. Outside a Hopsworks pod the functions throw an error naming the missing variable; guard local development on `inHopsworks()`.
+
+```python
+node_app = apps.create_app(
+    "node_api",
+    app_kind="CUSTOM",
+    git_url="https://github.com/my-org/node-api.git",
+    git_provider="GitHub",
+    entrypoint_command='bash -lc "npm ci --omit=dev && exec node server.js"',
+    app_port=8080,
+)
+```
+
+Trino is the right path for scans and aggregations over the offline tables; primary-key lookups belong on the online tables. Trino's HTTP protocol has no bound parameters, so never interpolate user input into SQL text.
 
 ## Managing an app
 
@@ -21109,7 +21418,7 @@ The details page includes:
 - Monitoring configuration
 - Resource requests
 - Runtime environment
-- Per-app environment variables
+- Environment variables: the per-app ones and the database and feature store access variables the platform injects
 - App metrics and Kubernetes health
 
 ## Public access for Streamlit apps
@@ -21154,10 +21463,30 @@ apps = project.get_app_api()
 app = apps.create_app(
     "customer_dashboard",
     app_path="Resources/app.py",
+    db_access=True,  # default: the online database, see above
 )
 
 app.run()
 print(app.app_url)
+```
+
+A Flask app from a project file, and a Node.js app from a repository:
+
+```python
+flask_app = apps.create_app(
+    "customer_api",
+    app_kind="FLASK",
+    app_path="Resources/api/app.py",
+    app_port=5000,
+)
+
+node_app = apps.create_app(
+    "customer_portal",
+    app_kind="NODEJS",
+    git_url="https://github.com/my-org/portal.git",
+    git_provider="GitHub",
+    entrypoint_script="src/server.js",
+)
 ```
 
 A Git-backed app that redeploys itself on every push:
@@ -21204,6 +21533,7 @@ hops app delete <name> --yes
 Use `--git-url` and `--entrypoint-script` for Git-backed Streamlit apps.
 Use `--entrypoint-command` and `--app-port` for custom apps.
 Add `--git-auto-redeploy` to roll a Git-backed app onto every new commit.
+Pass `--no-db-access` for an app that must not get the online database variables; Trino access does not depend on it.
 
 ## See also
 
@@ -21212,6 +21542,8 @@ Add `--git-auto-redeploy` to roll a Git-backed app onto every new commit.
 - [Python Deployment](../python-deployment/python-deployment.md)
 - [Session Capacity Warnings](../jupyter/session_capacity_warnings.md)
 - [Superset](../superset/superset.md)
+- [Query Engine (Trino)](../trino/query_engine.md)
+- [Secrets](../secrets/create_secret.md)
 
 ================================================================================
 # Deployment Creation
@@ -21438,8 +21770,9 @@ For full details on resource configuration, see the [Resources Guide](../../mlop
 
 ## Autoscaling
 
-Deployments use **Knative Pod Autoscaler (KPA)** to automatically scale the number of replicas based on traffic.
-You can configure the minimum and maximum number of instances as well as the scale metric (requests per second or concurrency).
+Deployments automatically scale the number of replicas between a minimum and a maximum.
+In Standard mode, the default, they are scaled by **KEDA** where the cluster has it, on CPU or memory utilization or on the requests at the gateway (concurrency or requests per second), and a minimum of 0 scales the deployment to zero when idle.
+In Knative mode they are scaled by the **Knative Pod Autoscaler (KPA)** on request traffic.
 
 For full details on autoscaling parameters, see the [Autoscaling Guide](../../mlops/serving/autoscaling.md).
 
@@ -21868,26 +22201,77 @@ The SQL runner is where you write and execute SQL queries against your data.
 
 **To run a query:**
 
-1. Pick a **Catalog** and a **Schema**.
+1. Pick a **Catalog** and a **Schema** in the **Explorer**.
    The tables in that schema are then listed below, and you can write the query against bare table names instead of qualifying every one.
 2. Write the query in the editor, or click a table to start from `SELECT * FROM <table>`.
 3. Choose a row limit, which is appended to the query as a `LIMIT`.
-4. Click **Run**.
+4. Click **Run query**, or press `Ctrl/Cmd + Enter`.
 
-Results appear below the editor on two tabs: **Results** holds the rows, and **Table** holds the column names and types.
-The editor auto-completes catalogs, schemas, tables and columns, and **Add query** opens a second tab so several queries can be kept side by side.
+The results appear below the editor, with each column's type under its name.
+The header reports the state of the run, how long it took, how many rows it processed and how many it returned.
+The editor auto-completes catalogs, schemas, tables and columns with `Ctrl + Space`, and **Add query** opens a second tab so several queries can be kept side by side.
 
 <figure>
-  <img src="../../../../assets/images/guides/trino/sql-runner.png" alt="SQL runner" />
+  <img src="../../../../assets/images/guides/trino/sql-runner.png" alt="The SQL runner with a query over the tpch catalog and its results" />
   <figcaption>SQL runner</figcaption>
+</figure>
+
+The expand icon in the results header opens the results in a full-size dialog, with the same run status, so a wide table can be read without scrolling sideways.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/sql-results-full.png" alt="The results of a query opened in the full-size results dialog" />
+  <figcaption>Results in full</figcaption>
+</figure>
+
+### Statements
+
+The SQL runner runs one statement at a time, and a trailing semicolon is removed before the statement is sent.
+A statement that changes data or the catalog reports what it did instead of a table of results: `CREATE TABLE succeeded`, or for `INSERT`, `UPDATE`, `DELETE`, `MERGE` and `CREATE TABLE ... AS SELECT` the number of rows it wrote, such as `INSERT succeeded (2 rows)`.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/sql-create-table.png" alt="A CREATE TABLE statement reported as succeeded" />
+  <figcaption>A statement that returns no rows</figcaption>
+</figure>
+
+Every statement runs in a session of its own.
+Statements that only change the session (`USE`, `SET SESSION`, `RESET SESSION`, `SET ROLE`, `SET PATH`, `SET TIME ZONE`, `PREPARE`, `DEALLOCATE`, and the transaction statements) therefore succeed and change nothing for the next statement, and the SQL runner says so.
+Choose the catalog and schema in the **Explorer** instead of with `USE`.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/sql-use-note.png" alt="A USE statement reported as having no effect" />
+  <figcaption>A session statement</figcaption>
+</figure>
+
+### Records
+
+End a statement with `\G` instead of `;` to see each row as a record, one column and value per line, the way the Trino CLI prints it.
+`\G` is not SQL: like a trailing semicolon, it is removed before the statement is sent.
+Records suit wide rows and long values; the records view shows the first 200 rows, so end the statement with `;` to see more in the grid.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/sql-records-view.png" alt="Query results shown as records after ending the statement with \G" />
+  <figcaption>Results as records</figcaption>
+</figure>
+
+### Query plans
+
+`EXPLAIN` shows the plan Trino would run for a statement.
+A plain `EXPLAIN` shows the plan as text, the way Trino prints it.
+`EXPLAIN (FORMAT GRAPHVIZ)` opens on a **Graph** view that draws the operators and the data flowing between them, grouped by fragment, which can be zoomed and moved around; **Text** beside it shows the Graphviz source.
+`EXPLAIN (FORMAT JSON)` and `EXPLAIN (TYPE IO)` are shown as indented JSON.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/sql-plan-graph.png" alt="The Graph view of an EXPLAIN (FORMAT GRAPHVIZ) plan in the full-size results dialog" />
+  <figcaption>A query plan as a graph</figcaption>
 </figure>
 
 ### SQL Statement Syntax Help
 
-Need help with SQL syntax? Click the help icon in the SQL runner to access the complete reference of all allowed SQL statement syntax. This includes SELECT statements, functions, data types, operators, and more. The syntax reference is readily available without leaving the query interface.
+The help icon in the editor opens the syntax of every SQL statement Trino supports, from `ALTER` to `VALUES`, including the clauses of `SELECT` such as time travel with `FOR TIMESTAMP | VERSION AS OF`, `TABLESAMPLE`, `UNNEST` and `JSON_TABLE`.
+It also lists the keyboard shortcuts and the statements that have no effect in the SQL runner.
 
 <figure>
-  <img src="../../../../assets/images/guides/trino/sql-statement-syntax.png" alt="SQL statement syntax" />
+  <img src="../../../../assets/images/guides/trino/sql-statement-syntax.png" alt="The SQL syntax help open on the SELECT statement" />
   <figcaption>SQL statement syntax</figcaption>
 </figure>
 
@@ -22009,13 +22393,22 @@ A Trino catalog makes an external data source queryable from the query engine.
 Each catalog names a Trino connector and the properties that connector needs to reach the source, such as a connection URL and credentials.
 Once a catalog is live, its databases and tables can be queried from the SQL runner alongside your feature groups.
 
-Navigate to **Query Engine** → **Catalogs** in your project to see the project's catalogs together with the cluster's shared default catalogs.
-A catalog you create is named `<project>__<name>` and is queryable only inside your own project.
-Only a project Data Owner can create, edit or delete one.
+Navigate to **Query Engine** → **Catalogs** in your project to see the project's catalogs and your own private catalogs.
+The cluster's shared default catalogs are listed once you add **Default** to the **Type** filter.
+A catalog belongs either to the project or to you:
+
+- A **project catalog** is named `<project>__<name>` and is queryable inside the project.
+  The project's Data Owners create, edit, delete and share it.
+- A **private catalog** is named `_<username>__<name>` and follows you into every project you are a member of.
+  Only you edit, delete or share it.
+  See [Private catalogs][private-catalogs].
+
+Only a Data Owner of the current project can create a catalog of either kind.
+A catalog is queryable outside its own project, or outside your projects for a private one, only once it is shared, as described in [Sharing Catalogs and Feature Groups][sharing-catalogs-and-feature-groups].
 
 <figure>
   <img src="../../../../assets/images/guides/trino/catalogs-list.png" alt="Catalogs list" />
-  <figcaption>The project's catalogs alongside the cluster's shared default catalogs</figcaption>
+  <figcaption>The project's catalogs, a private catalog, and the cluster's shared default catalogs</figcaption>
 </figure>
 
 A catalog change is recorded immediately, but it reaches the query engine only when the engine restarts, because Trino reads catalogs at startup.
@@ -22093,6 +22486,32 @@ If a catalog needs to outlive your account, have someone recreate it under their
 
     Create the secret by typing or pasting the value as text when you intend to reference it from a catalog.
     For a credential that is naturally a file, use a mountable secret instead.
+
+## Private catalogs
+
+Choose **Private** as the owner when creating a catalog to make it yours rather than the project's.
+The name prefix becomes `_<username>__`, for example `_meb10000__sales`, and the catalog is listed in every project you are a member of.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/create-private-catalog.png" alt="Creating a private catalog" />
+  <figcaption>A private catalog takes your username as its prefix and can reference only your own secrets</figcaption>
+</figure>
+
+A private catalog differs from a project catalog in what it can reach and who controls it:
+
+- It can reference only your own Hopsworks secrets and your own mountable secrets, which you manage under **Account Settings** → **Secrets**.
+  A project's mountable secrets are not available to it, because the catalog would carry them into every other project you are a member of.
+  See [Mountable secrets for private catalogs][mountable-secrets-for-private-catalogs].
+- It cannot be created from a data source, because a data source's credential belongs to the project.
+  Enter the connection details yourself instead.
+- Only you can edit, delete or share it, from any of your projects and whatever your role there, so being made a Data Scientist in a project does not lock you out of your own catalogs.
+  Other members of your projects cannot query it unless you share it with their project.
+- You write to it only from a project where you are a Data Owner, and read it from any other.
+  In a project where you are a Data Scientist you can only read that project's data, and a private catalog writable from there would let you copy the data into a catalog you then read from your other projects.
+- The number of private catalogs you can own has the same limit as a project's catalogs, ten by default.
+
+When your account is deleted, your private catalogs are marked for removal and stop being queryable at once, and their shares are removed with them.
+They stay denied to everyone, including a later account with the same username, until they are removed like any deleted catalog, as described in [When the catalog goes live][when-the-catalog-goes-live].
 
 ## Testing the connection
 
@@ -22172,9 +22591,24 @@ Testing the connection before saving catches most of these earlier.
 
 ## Who can query a catalog
 
-Access to a user-created catalog is granted at the catalog level per project: a project's Data Owners can read and write, and Data Scientists can read.
-There is no per-schema or per-table configuration for these catalogs.
-To limit what a catalog exposes, scope the database user in the connection credentials at the source, since the query engine reads the external system as that user and can only ever see what those credentials allow.
+Inside the project that owns a project catalog, its Data Owners can read and write, and its Data Scientists can read.
+A private catalog can be read by you from any of your projects, and written only from a project where you are a Data Owner.
+
+Other projects can read a catalog only through a share, which grants read access to the whole catalog, one schema, one table, or some columns of a table, optionally with masked values.
+See [Sharing Catalogs and Feature Groups][sharing-catalogs-and-feature-groups].
+
+The query engine reads the external system as the database user in the connection credentials, so no share can expose more than those credentials allow.
+Scoping that database user at the source remains the strongest limit on what a catalog can reach.
+
+A Data Owner of the project can also run a JDBC catalog's `system.query` table function, which passes a query to the source database as that database user.
+The query engine sends it as a subquery, so the database rejects a statement that changes data, but a database function that changes data as a side effect still runs.
+Give the database user only the privileges the catalog's Data Owners should have.
+The receiving project of a share cannot run the catalog's functions at all.
+
+Read access to an Iceberg or Delta Lake table also allows its table procedures, `ALTER TABLE ... EXECUTE` with `optimize`, `expire_snapshots`, `remove_orphan_files` or `rollback_to_snapshot`, because the query engine does not check them against the access rules.
+A Data Scientist of the project can therefore rewrite, expire or roll back the tables of the project's Iceberg and Delta Lake catalogs, and so can you on your private catalog from a project where you are a Data Scientist, although neither can write rows.
+Set the connector's `iceberg.security` or `delta.security` property to `read_only` on a catalog that must not be changed this way; the query engine then refuses table procedures to everyone and reading is unchanged.
+`CALL` procedures, such as `system.unregister_table`, are refused to everyone.
 
 ## Creating a catalog from the Python client
 
@@ -22230,6 +22664,220 @@ print(result["restarted"], result["quarantined"])
 ```
 
 The restart interrupts queries running anywhere on the cluster, so prefer waiting for the scheduled restart unless the change is needed sooner.
+
+================================================================================
+# Sharing
+Source: https://docs.hopsworks.ai/latest/user_guides/projects/trino/sharing/
+
+# Sharing Catalogs and Feature Groups
+
+The query engine enforces who can read what, so data one project owns is not visible to another project until it is shared.
+Two kinds of share reach the query engine:
+
+- A **catalog share** gives another project read access to one of your Trino catalogs: the whole catalog, or chosen schemas and tables, down to some columns of a table, optionally with masked values.
+- A **feature group share**, made from the feature store, also makes the shared feature group queryable through the query engine in the receiving project.
+
+A share always grants read access, and always to the receiving project's Data Owners and Data Scientists.
+It grants tables only: the receiving project cannot run the catalog's functions, such as `system.query` of a JDBC catalog, which would run any SQL on the source database as the catalog's database user.
+Changes take effect within seconds, without restarting the query engine.
+
+## Sharing a catalog
+
+A project catalog is shared by a Data Owner of the project, and a private catalog by its owner, from any of their projects.
+A catalog can be shared once it is **Approved** and while it is not being deleted, because a catalog the query engine has not loaded has nothing to share yet.
+It cannot be shared with the project that owns it.
+While a catalog is shared, its connector cannot change, because a narrowed share denies the hidden columns of the connector the query engine runs, and the engine switches connector only at its next restart.
+Revoke its shares first; its other properties can be edited as usual.
+
+Click the share icon on the catalog's row in **Query Engine** → **Catalogs** to open its sharing page.
+The page lists every project the catalog is shared with, what it shares with each, and whether each share is live.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/catalog-sharing-page.png" alt="Sharing page of a catalog" />
+  <figcaption>A catalog shared whole with one project, and one table with two of its three columns, one of them masked, with another</figcaption>
+</figure>
+
+Click **Share** and choose the project.
+A project holds one share of a catalog, which covers everything it receives from the catalog, so a project the catalog is shared with already is not offered: edit its share instead.
+Then check what to share in the tree of the catalog:
+
+- Check the catalog to share every schema and table in it, including ones created later.
+- Check a schema to share every table in it, including tables created in it later.
+- Expand a schema and check some of its tables to share only those tables.
+- Expand a table and uncheck some of its columns to share only the checked columns. A checked column can carry a mask.
+
+Unchecking something inside a checked schema or catalog keeps the rest of it: uncheck `sales.salaries` in a checked schema `sales`, and every other table of `sales` stays shared.
+A partly checked box shares only what is checked under it, so a table created later in a partly checked schema is not shared.
+
+The panel beside the tree shows what the receiving project will see.
+Click a table name to see its first rows as they will read them, with unchecked columns left out and masks applied.
+The sample is read as you, before anything is saved.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/share-dialog-table.png" alt="Sharing one table with some columns" />
+  <figcaption>Sharing one table, with one column left out and one column masked</figcaption>
+</figure>
+
+The schemas, tables and columns offered are the ones you can see in the catalog yourself, read through the catalog's own connection.
+
+### Sharing some columns of a table
+
+Expand a table in the tree to choose its columns.
+An unchecked column cannot be read by the receiving project, and a query that selects it, or selects `*`, is refused.
+The table's other ways of revealing a column are closed too: the connector's hidden columns, such as `$path` and `$partition`, or Elasticsearch's `_source`, which holds the whole document, and the table's metadata tables, such as `<table>$partitions`, are denied on a narrowed table.
+
+Tables of a Kafka, Redis, MongoDB, Cassandra or Thrift catalog cannot be narrowed to some columns, because those connectors can hide columns that are defined outside the query engine and cannot all be denied.
+Share such a table whole, or leave it out.
+
+The receiving project reads only the columns you checked.
+Hopsworks reads the table's columns each time it updates the rules, and at least every five minutes by default, and denies every column you did not check, so a column added to the table later, or renamed at the source, is not shared.
+Between the change at the source and the next update, the new column is readable.
+A renamed column loses its mask with its old name and is denied under the new one.
+The sharing page marks such a share with the number of new columns and names them; edit the share and check them to share them.
+While the query engine is restarting, a narrowed table the rules already held keeps what they denied before, as well as the columns recorded when the share was saved, until it is back.
+A narrowed table the rules did not hold yet, because its share is new or was wider, or because it was left out before, stays out until the query engine is back, and a narrowed table whose columns cannot be read is left out of the share until they can.
+
+Iceberg and Delta Lake tables can also be read as of an earlier version, with `FOR VERSION AS OF` or `FOR TIMESTAMP AS OF`, and such a read has the columns the table had then.
+Hopsworks denies those columns too: every column the table has had at a version that can still be read, so a column dropped or renamed at the source stays denied under its old name.
+This covers Iceberg and Delta Lake catalogs, and the Iceberg and Delta Lake tables of a Lakehouse catalog.
+Hive and Hudi tables cannot be read as of an earlier version.
+An Iceberg table whose metadata file is outside HopsFS, larger than 64 MiB, or not readable by the catalog's owner has its earlier columns read one snapshot at a time, 50 snapshots per update, and is left out of the share until all of them have been read; the Hopsworks log names the table.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/share-edit-columns.png" alt="Editing the columns of a share" />
+  <figcaption>Editing a share: a table with two columns shared, one of them masked, and one left out</figcaption>
+</figure>
+
+### Masking a column
+
+A shared column can carry a mask, which replaces the value the receiving project reads.
+A mask is one SQL expression over the row, for example `'***'` or `regexp_replace(email, '.+@', '***@')`, and it must return the column's own type.
+
+A mask runs as the person querying, not as you, so it can use only what they can read: the checked columns of the same table.
+A mask that refers to an unchecked column is refused when you save the share.
+A mask that reads another table is accepted, because it is checked as you, but it fails at query time for anyone in the receiving project who cannot read that table.
+It cannot contain `;` or a comment, and it is limited to 2000 characters.
+The mask is checked against the table when the share is saved, so an expression the query engine cannot evaluate is reported then rather than when someone queries the table.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/query-masked-column.png" alt="Querying a masked column" />
+  <figcaption>The receiving project reads the masked column as <code>***</code></figcaption>
+</figure>
+
+You always read your own catalog unmasked, and a share never narrows your own access: in a project a private catalog is shared with, its owner keeps the access described in [Private catalogs][private-catalogs].
+
+### Editing a share
+
+Click the edit icon on a share to change what it covers: add or remove schemas and tables, narrow tables to some columns, or go from chosen schemas and tables to the whole catalog.
+Saving reads the narrowed tables' columns again, and the change is live within seconds.
+
+### The status of a share
+
+A share is live once the query engine has loaded the rules that include it, which takes a few seconds.
+The sharing page shows where each share stands and refreshes itself while a change is being applied.
+
+| Status | Meaning |
+| --- | --- |
+| Applying | Saved, and being made live. |
+| Active | Live: the receiving project can read what it covers. |
+| Revoking | Being removed. The receiving project loses access when this finishes. |
+| Failed | Could not be made live. The status carries the reason; edit the share and save it to retry. |
+
+### Objects that no longer exist
+
+A share names schemas and tables, and an object it names may be dropped at the source later.
+The share keeps it, and the sharing page lists it as **Not found**.
+If an object with the same name is created again, the share applies to it.
+To remove an object that is gone for good, click **Remove them from the share**, or edit the share and uncheck the object, which the tree shows as not found at the source.
+
+### Revoking a share
+
+Click the delete icon on a share to revoke it.
+The receiving project loses access to everything the share covered as soon as the revoke is live, within seconds, and the share disappears from the page once it is.
+The catalog cannot be shared with the same project again until the revoke has finished.
+
+### What a share does not restrict
+
+A share grants reading, but the query engine does not check table procedures against it.
+Anyone in the receiving project can run `ALTER TABLE ... EXECUTE` on a shared table of an Iceberg or Delta Lake catalog, for example `optimize`, `expire_snapshots` or `rollback_to_snapshot`, and change the table with the catalog's own credentials.
+`rollback_to_snapshot` returns the table to an earlier version and drops every write made since.
+A table with a masked column is the exception: the query engine refuses table procedures on it.
+Share such a catalog only with projects you trust with its tables, or set the connector's own `iceberg.security` or `delta.security` property to `read_only` on the catalog, which refuses table procedures to everyone, you included, and leaves reading unchanged.
+
+Deleting a catalog revokes all of its shares at once, and so does deleting the receiving project.
+
+### Shares your project received
+
+The **Catalogs** tab lists, under **Shared with this project**, every catalog share your project received, who it comes from, and what it covers.
+It shows how many columns of a table are masked, but not the mask expressions, which can hold values such as a salt.
+A shared catalog is queried by its own name, like any other catalog, with the SQL runner or any Trino client.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/received-shares.png" alt="Shares received by a project" />
+  <figcaption>A project catalog shared whole, and one table of another user's private catalog</figcaption>
+</figure>
+
+## Sharing feature groups through the query engine
+
+A feature group shared with another project, as described in [Sharing a feature group with selected features][sharing-a-feature-group-with-selected-features], is also queryable by that project through the query engine.
+Where it is read from depends on whether the whole feature group was shared or a subset of its features.
+
+| Shared | Catalog | Readable |
+| --- | --- | --- |
+| The whole feature group, or the whole feature store | The catalog named after the feature group's format: `delta`, `hudi`, `iceberg` or `hive` | Every feature |
+| A subset of the features | The shared catalog of its format: `delta_shared`, `hudi_shared` or `iceberg_shared` | The shared features only |
+
+The schema is the owning project's feature store, `<project>_featurestore`, and the table is `<feature group>_<version>`.
+
+The share dialog says which catalog the other project will read from, or that the share is not queryable through the query engine.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/fg-share-subset.png" alt="Sharing a subset of a feature group" />
+  <figcaption>A subset of the features is read through <code>delta_shared</code></figcaption>
+</figure>
+
+### A subset of the features
+
+A subset share is read through the shared catalog of the feature group's format.
+The primary key and the event time are always shared, and the receiving project reads the other shared features alongside them.
+
+```sql
+SELECT datetime, cc_num, category, amount
+FROM delta_shared.fraud_featurestore.transactions_1;
+```
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/query-shared-features.png" alt="Querying a subset share" />
+  <figcaption>Only the shared features are listed, and the preview selects them by name</figcaption>
+</figure>
+
+Everything else in the table is denied: the unshared features, the connector's hidden columns such as `$path`, and the table's metadata tables such as `transactions_1$history`.
+A query that selects an unshared feature, or selects `*`, is refused.
+
+<figure>
+  <img src="../../../../assets/images/guides/trino/query-unshared-feature-denied.png" alt="Querying an unshared feature" />
+  <figcaption>Selecting a feature that was not shared is refused</figcaption>
+</figure>
+
+The shared catalogs are visible only to projects that received a subset share, and a project sees only the feature groups shared with it there.
+A subset share is not readable through the catalog named after the format, and a whole share is not readable through the shared catalog.
+
+Adding features to a shared feature group does not widen the share: a new feature stays unreadable by the receiving project until you share it.
+The access rules are updated before the request that adds the features returns.
+A column that reaches the table some other way, such as a Delta write that merges a new column into the schema, is denied too, once Hopsworks next reads the table's columns: at least every five minutes by default, and on every share change.
+If the table's columns cannot be read, the share is left out of the rules until they can.
+The columns an Iceberg or Delta Lake feature group had at an earlier version are denied as well, as described in [Sharing some columns of a table][sharing-some-columns-of-a-table].
+Unsharing the feature group, or deleting it, removes access within seconds.
+
+### Feature groups that are not queryable
+
+Two kinds of feature group cannot be read through the query engine by the receiving project:
+
+- A feature group on an external data source, whether shared whole or in part, because its data does not live in the feature store's tables.
+- A subset of a feature group stored as a plain Hive table, without Delta, Hudi or Iceberg, because there is no shared catalog for that format.
+  Such a feature group shared whole is read through the `hive` catalog.
+
+The share dialog says so for these feature groups, and the feature group remains shared and readable through the feature store APIs.
 
 ================================================================================
 # Superset
@@ -22317,7 +22965,7 @@ SQL Lab is an interactive SQL query interface for exploring your feature data.
 </figure>
 
 For the Trino connection, SQL Lab shows a **Catalog** dropdown between **Database** and **Schema**.
-The dropdown appears because the connection has *Allow changing catalogs* enabled, and it lists every Trino catalog (`hive`, `delta`, `iceberg`, `hudi`).
+The dropdown appears because the connection has *Allow changing catalogs* enabled, and it lists every Trino catalog you can read (`hive`, `delta`, `iceberg`, `hudi`, your project's catalogs, and catalogs shared with your project).
 Selecting the catalog that matches your table format lets you query the table without prefixing the catalog in the SQL.
 
 <figure>
@@ -23672,7 +24320,8 @@ Configure the resources to be allocated for predictor and transformer in a model
 ### Autoscaling
 
 Configure autoscaling for your model deployment, including scale metrics and scaling parameters, see the [Autoscaling Guide](autoscaling.md).
-How a deployment scales depends on whether it runs in KServe Knative or Standard mode, and scale-to-zero is available in Knative mode only, see [Deployment mode](autoscaling.md#deployment-mode).
+How a deployment scales depends on whether it runs in KServe Standard mode, scaled by KEDA where the cluster has it, or Knative mode, see [Deployment mode](autoscaling.md#deployment-mode).
+A minimum of 0 instances scales a deployment to zero when idle in either mode, see [Scale to zero when idle](autoscaling.md#scale-to-zero-when-idle).
 
 ### Scheduling
 
@@ -24035,8 +24684,8 @@ Additionally, you can find the nº of instances currently running by scrolling d
 
 !!! info "Scale-to-zero capabilities"
     If scale-to-zero capabilities are enabled, you can see how the nº of instances of a running deployment goes to zero and the status changes to `idle`.
-    To enable scale-to-zero in a deployment, see [Resources Guide](resources.md).
-    Scale-to-zero, and therefore the `idle` status, apply to deployments in ==Knative== mode only, see [Deployment mode](autoscaling.md#deployment-mode).
+    To enable scale-to-zero in a deployment, set its minimum number of instances to 0, see [Scale to zero when idle](autoscaling.md#scale-to-zero-when-idle).
+    In ==Standard== mode this needs KEDA on the cluster and a predictor without a transformer; in ==Knative== mode it is always available.
 
 ## Code
 
@@ -24106,7 +24755,7 @@ The status of a deployment is a high-level description of its current state.
     | CREATED  | Deployment has never been started                                                                                                            |
     | STARTING | Deployment is starting                                                                                                                       |
     | RUNNING  | Deployment is ready and running. Predictions are served without additional latencies.                                                        |
-    | IDLE     | Deployment is ready but scaled to zero or has no active replicas. Higher latencies (cold-start) are expected on the first inference request. Knative mode only. |
+    | IDLE     | Deployment is ready but scaled to zero or has no active replicas. Higher latencies (cold-start) are expected on the first inference request.                    |
     | FAILED   | Terminal state. The deployment has encountered an unrecoverable error. More details can be found in the status condition.                    |
     | UPDATING | Deployment is applying updates to the running instances                                                                                      |
     | STOPPING | Deployment is stopping                                                                                                                       |
@@ -25958,10 +26607,9 @@ For each component, you can set minimum (requests) and maximum (limits) resource
     | Shared Memory (MB) | 128             | n/a            | n/a                                                |
 
 !!! tip "Automatic downscale of inactive instances"
-    Setting the number of instances to **0** for a component (predictor or transformer) enables **scale-to-zero**.
-    This means that all instances of the component will automatically scale down to zero after a default period of inactivity of 30 seconds.
-    Scale-to-zero is available in ==Knative== mode only.
-    A deployment in ==Standard== mode always keeps at least one instance of each component running, see [Deployment mode](autoscaling.md#deployment-mode).
+    Setting the number of instances to **0** for a component enables **scale-to-zero**: its instances scale down to zero after a period without requests and the next request wakes it.
+    In ==Knative== mode this applies to the predictor and the transformer, once the stable window (60 seconds by default) has seen no traffic.
+    In ==Standard== mode it applies to the predictor of a deployment without a transformer, on a cluster with KEDA, after the idle cooldown (5 minutes by default), see [Scale to zero when idle](autoscaling.md#scale-to-zero-when-idle).
 
 ## Web UI
 
@@ -25999,7 +26647,7 @@ Moreover, you can choose the minimum number of replicas for each of these compon
 
 !!! note "Scale-to-zero capabilities"
     Set the number of instances to **0** to enable scale-to-zero on the component.
-    This requires the deployment to run in ==Knative== mode, see [Deployment mode](autoscaling.md#deployment-mode).
+    In ==Standard== mode the field accepts 0 for the predictor of a deployment without a transformer on a cluster with KEDA, see [Scale to zero when idle](autoscaling.md#scale-to-zero-when-idle).
 
 <p align="center">
   <figure>
@@ -26092,7 +26740,7 @@ Once you are done with the changes, click on `Create new deployment` at the bott
 
 ## Autoscaling
 
-Deployments can be configured to automatically scale the number of replicas, on traffic in Knative mode and on CPU or memory utilization in Standard mode.
+Deployments can be configured to automatically scale the number of replicas: on request traffic in Knative mode, and on CPU or memory utilization, the request metrics or the vLLM engine metrics in Standard mode.
 To learn about the different autoscaling parameters, see the [Autoscaling Guide](autoscaling.md).
 
 ================================================================================
@@ -26107,8 +26755,8 @@ This guide explains how to set up **autoscaling** for model deployments using ei
 
 Autoscaling enables the deployment to use resources more efficiently, by growing and shrinking the allocated resources according to its actual, real-time usage.
 
-How a deployment scales depends on the mode it runs in.
-See [Deployment mode](#deployment-mode), [Scale metrics](#scale-metrics) and [Scaling parameters](#scaling-parameters) for details on the available scaling options in each mode.
+How a deployment scales depends on the mode it runs in and, in Standard mode, on the autoscaler the cluster provides.
+See [Deployment mode](#deployment-mode), [Scale metrics](#scale-metrics), [Scaling parameters](#scaling-parameters) and [Scale to zero when idle](#scale-to-zero-when-idle) for the available scaling options.
 
 ## Web UI
 
@@ -26143,9 +26791,24 @@ To navigate to the advanced creation form, click on `Advanced options`.
 
 In the `Autoscaling` section of the advanced form, you can configure the scaling parameters for the predictor and/or the transformer (if available).
 The `Knative` checkbox at the top of the section selects the [deployment mode](#deployment-mode) and decides which of the fields below are shown.
-With it checked, you can set the scale metric, target value, minimum and maximum instances, as well as the panic and stable window parameters.
-With it cleared, the deployment runs in Standard mode and you can set the minimum and maximum instances plus a CPU or memory scale metric and its target.
+It starts unchecked, so a new deployment runs in Standard mode unless you check it.
 The checkbox is disabled while the deployment is running, because the mode of a running deployment cannot be changed.
+
+With the checkbox cleared, the deployment runs in Standard mode and the form shows the fields of the autoscaler the cluster provides.
+Its tooltip names the one in effect: KEDA where the cluster has it, KServe's own Horizontal Pod Autoscaler (HPA) otherwise.
+
+- The minimum and maximum instances.
+  A minimum of **0** means scale to zero when idle, see [Scale to zero when idle](#scale-to-zero-when-idle).
+  The field accepts 0 for the predictor of a deployment without a transformer on a cluster with KEDA.
+  Equal minimum and maximum run a fixed number of instances with no autoscaler.
+- The scale metric and its target.
+  Under KEDA, a vLLM predictor can scale on the engine metrics (queue depth, KV-cache usage, running requests, queue time, time to first token, request latency) and any other predictor without a transformer on the concurrent requests or requests per second at the gateway, next to CPU and memory.
+  The target field relabels itself for the chosen metric.
+- Under KEDA, the scale-down and scale-up stabilization windows (empty means the cluster default) and one additional scale metric with its target.
+- With a minimum of 0, the idle cooldown and the cold-start timeout.
+  A vLLM deployment shows a warning, because the model reloads on every wake.
+
+With the checkbox checked, the deployment runs in Knative mode and you can set the scale metric (concurrent requests or requests per second), the target value, the minimum and maximum instances, and the panic and stable window parameters.
 
 <p align="center">
   <figure>
@@ -26162,6 +26825,10 @@ The checkbox is disabled while the deployment is running, because the mode of a 
 </p>
 
 Once you are done with the changes, click on `Create new deployment` at the bottom of the page to create the deployment for your model.
+
+!!! note "Deployments stored before KEDA was installed"
+    A Standard-mode deployment created on a cluster that then gets KEDA keeps its CPU or memory threshold, and KEDA runs it on its next save or start.
+    The edit form shows a note when a stored configuration still names KServe's HPA on a cluster that has KEDA, since saving moves it to KEDA.
 
 ## Code
 
@@ -26185,8 +26852,55 @@ Once you are done with the changes, click on `Create new deployment` at the bott
 ### Step 2: Define the predictor scaling configuration
 
 You can use the [`PredictorScalingConfig`][hsml.scaling_config.PredictorScalingConfig] class to configure the scaling options according to your preferences.
-Default values for scaling metrics and parameters are listed in the [Scale metrics](#scale-metrics) and [Scaling parameters](#scaling-parameters) sections above.
+Default values for scaling metrics and parameters are listed in the [Scale metrics](#scale-metrics) and [Scaling parameters](#scaling-parameters) sections below.
 Make sure the metric and parameters you set are valid for the [deployment mode](#deployment-mode) you deploy in.
+
+=== "Standard mode (KEDA)"
+
+    ```python
+    from hsml.scaling_config import PredictorScalingConfig, ScaleMetric
+
+
+    # scale on the requests in flight, measured at the gateway,
+    # and rest at zero when idle
+    predictor_scaling = PredictorScalingConfig(
+        min_instances=0,
+        max_instances=5,
+        scale_metric=ScaleMetric.CONCURRENCY,
+        target=20,
+        scale_down_stabilization_window_seconds=120,
+        idle_cooldown_seconds=300,
+        cold_start_timeout_seconds=120,
+    )
+    ```
+
+=== "Standard mode (vLLM engine metrics)"
+
+    ```python
+    from hsml.scaling_config import PredictorScalingConfig, ScaleMetric
+
+
+    # add an instance when more than 8 requests are being generated
+    # per instance, or when the KV cache passes 80%, whichever comes first
+    predictor_scaling = PredictorScalingConfig(
+        min_instances=1,
+        max_instances=2,
+        scale_metric=ScaleMetric.RUNNING_REQUESTS,
+        target=8,
+        additional_scale_metrics=[(ScaleMetric.KV_CACHE_USAGE, 80)],
+    )
+    ```
+
+=== "Standard mode (CPU)"
+
+    ```python
+    from hsml.scaling_config import PredictorScalingConfig
+
+
+    predictor_scaling = PredictorScalingConfig(
+        min_instances=1, max_instances=5, scale_metric="CPU", target=80
+    )
+    ```
 
 === "Knative mode"
 
@@ -26199,32 +26913,11 @@ Make sure the metric and parameters you set are valid for the [deployment mode](
     )
     ```
 
-=== "Standard mode"
-
-    ```python
-    from hsml.scaling_config import PredictorScalingConfig
-
-
-    predictor_scaling = PredictorScalingConfig(
-        min_instances=1, max_instances=5, scale_metric="CPU", target=80
-    )
-    ```
-
 ### Step 3 (Optional): Define the transformer scaling configuration
 
 If a transformer script is also provided, you can use the [`TransformerScalingConfig`][hsml.scaling_config.TransformerScalingConfig] class to configure the scaling options according to your preferences.
-Default values for scaling metrics and parameters are listed in the [Scale metrics](#scale-metrics) and [Scaling parameters](#scaling-parameters) sections above.
-
-=== "Knative mode"
-
-    ```python
-    from hsml.scaling_config import TransformerScalingConfig
-
-
-    transformer_scaling = TransformerScalingConfig(
-        min_instances=1, max_instances=3, scale_metric="CONCURRENCY", target=50
-    )
-    ```
+Default values for scaling metrics and parameters are listed in the [Scale metrics](#scale-metrics) and [Scaling parameters](#scaling-parameters) sections below.
+In Standard mode a transformer scales on CPU or memory and keeps at least one instance; the request metrics and scale to zero are for a predictor without a transformer.
 
 === "Standard mode"
 
@@ -26237,25 +26930,18 @@ Default values for scaling metrics and parameters are listed in the [Scale metri
     )
     ```
 
-### Step 4: Create a deployment with the scaling configuration
-
 === "Knative mode"
 
     ```python
-    my_model = mr.get_model("my_model", version=1)
+    from hsml.scaling_config import TransformerScalingConfig
 
-    # optional
-    my_transformer = ms.create_transformer(
-        script_file="Resources/my_transformer.py",
-        scaling_configuration=transformer_scaling,
-    )
 
-    my_deployment = my_model.deploy(
-        scaling_configuration=predictor_scaling,
-        # optional:
-        transformer=my_transformer,
+    transformer_scaling = TransformerScalingConfig(
+        min_instances=1, max_instances=3, scale_metric="CONCURRENCY", target=50
     )
     ```
+
+### Step 4: Create a deployment with the scaling configuration
 
 === "Standard mode"
 
@@ -26270,7 +26956,25 @@ Default values for scaling metrics and parameters are listed in the [Scale metri
 
     my_deployment = my_model.deploy(
         scaling_configuration=predictor_scaling,
-        knative_mode=False,
+        # optional:
+        transformer=my_transformer,
+    )
+    ```
+
+=== "Knative mode"
+
+    ```python
+    my_model = mr.get_model("my_model", version=1)
+
+    # optional
+    my_transformer = ms.create_transformer(
+        script_file="Resources/my_transformer.py",
+        scaling_configuration=transformer_scaling,
+    )
+
+    my_deployment = my_model.deploy(
+        scaling_configuration=predictor_scaling,
+        knative_mode=True,
         # optional:
         transformer=my_transformer,
     )
@@ -26278,8 +26982,12 @@ Default values for scaling metrics and parameters are listed in the [Scale metri
 
 !!! note "Match the scaling configuration to the mode"
     The `knative_mode` argument selects the [deployment mode](#deployment-mode) of the deployment.
-    Leaving it unset deploys in Knative mode for every model server except vLLM, so a Standard scaling configuration needs `knative_mode=False` passed explicitly.
+    Leaving it unset deploys in Standard mode for every model server, so a Knative scaling configuration needs `knative_mode=True` passed explicitly.
     A scaling configuration that uses fields the chosen mode does not support is rejected, so set both together.
+
+!!! tip "Read the configuration back"
+    The backend fills in the defaults and settles the configuration on every start and save.
+    `my_deployment.save()` updates the object with what was stored, but `my_deployment.start()` only refreshes the state, so fetch the deployment again (`ms.get_deployment("my_deployment")`) and call `predictor.scaling_configuration.describe()` on it to see the configuration the deployment follows.
 
 !!! api "API reference"
 
@@ -26293,70 +27001,167 @@ Default values for scaling metrics and parameters are listed in the [Scale metri
 ## Deployment mode
 
 Every deployment runs on KServe in one of two modes.
-In ==Knative== mode, the deployment is backed by a Knative service that scales on request traffic and can scale to zero.
-In ==Standard== mode, the deployment is backed by a plain Kubernetes Deployment that always keeps at least one instance running and scales on CPU or memory utilization.
+In ==Standard== mode, the deployment is backed by a plain Kubernetes Deployment and an autoscaler the cluster provides: KEDA where it is installed, KServe's own HPA otherwise.
+In ==Knative== mode, the deployment is backed by a Knative service that scales on request traffic.
 Inference requests reach both modes through the same Istio endpoint, so the mode does not change how you send predictions to a deployment.
 
-!!! info "Knative and Standard mode"
+!!! info "Standard and Knative mode"
 
-    | Mode     | Backed by             | Scale-to-zero | Autoscaler                                                                                   |
-    | -------- | --------------------- | ------------- | -------------------------------------------------------------------------------------------- |
-    | Knative  | Knative service       | Yes           | [Knative Pod Autoscaler (KPA)](https://knative.dev/docs/serving/autoscaling/)                 |
-    | Standard | Kubernetes Deployment | No            | [Kubernetes HPA](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) |
+    | Mode     | Backed by             | Autoscaler                                                                                                                                                                            | Scale-to-zero                                                                        |
+    | -------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
+    | Standard | Kubernetes Deployment | [KEDA](https://keda.sh/docs/latest/concepts/) where the cluster has it (the default), else [Kubernetes HPA](https://kubernetes.io/docs/tasks/run-application/horizontal-pod-autoscale/) | With KEDA, for a predictor without a transformer, through the KEDA HTTP add-on        |
+    | Knative  | Knative service       | [Knative Pod Autoscaler (KPA)](https://knative.dev/docs/serving/autoscaling/)                                                                                                           | Yes                                                                                  |
 
-LLM deployments default to Standard mode, and deployments on every other model server default to Knative mode.
-LLMs load large model files and start slowly, so scaling them to zero costs a long cold start on the next request, and their throughput is bounded by GPU memory rather than by the number of concurrent requests.
+A new deployment runs in Standard mode for every model server; Knative mode is the opt-in.
+An update that leaves the mode unset keeps the stored one.
 
 The two modes are backed by different Kubernetes resources, so the mode of a deployment cannot be changed while it is running.
 Stop the deployment, change the mode, and start it again.
 Switching the mode clears the scaling settings that do not carry over and re-derives the defaults of the new mode.
 
+### Standard-mode autoscaler
+
+Where the cluster has KEDA, every Standard-mode deployment is scaled by KEDA: on CPU and memory utilization, on the request metrics measured at the gateway by the KEDA HTTP add-on, or on the vLLM engine metrics, with scale to zero when idle.
+KEDA is installed by the Hopsworks Helm chart by default, see [KEDA values][helm-values-hw-keda].
+A cluster without KEDA falls back to KServe's HPA, which scales on CPU and memory utilization only, always keeps at least one instance, and takes none of the KEDA settings.
+
+The Python SDK exposes the choice as the `autoscaler` argument (`Autoscaler.KEDA` or `Autoscaler.HPA`).
+Leaving it unset picks KEDA where it is installed, so there is normally no need to set it; the UI shows no selector and names the autoscaler in effect.
+KServe's HPA is kept as the fallback for clusters without KEDA and will be retired.
+
 !!! tip "Python SDK"
     From the Python SDK, the mode is selected with the `knative_mode` keyword
     argument: `True` for Knative mode, `False` for Standard mode.
-    Leaving it unset uses the default for the model server when creating a deployment,
+    Leaving it unset uses Standard mode when creating a deployment,
     and keeps the stored mode when updating one.
     See [`Model.deploy()`][hsml.model.Model.deploy] in the API reference.
 
 ## Scale metrics
 
-The metric a deployment can scale on depends on its [deployment mode](#deployment-mode), because the two modes are driven by different autoscalers.
-Setting a metric that the mode does not support is rejected.
+The metric a deployment can scale on depends on its [deployment mode](#deployment-mode), its autoscaler and its model server.
+Setting a metric that the deployment cannot scale on is rejected.
+Target values are per instance.
 
-| Scale Metric | Mode     | Default Target | Description                     |
-| ------------ | -------- | -------------- | ------------------------------- |
-| RPS          | Knative  | 200            | Requests per second per replica |
-| CONCURRENCY  | Knative  | 100            | Concurrent requests per replica |
-| CPU          | Standard | 80             | CPU utilization percentage      |
-| MEMORY       | Standard | 80             | Memory utilization percentage   |
+| Scale Metric          | Measures                                                       | Default Target | Standard (KEDA)                   | Standard (HPA) | Knative | Model servers              |
+| --------------------- | -------------------------------------------------------------- | -------------- | --------------------------------- | -------------- | ------- | -------------------------- |
+| `CPU`                 | CPU utilization, percentage of the request                     | 80             | Yes                               | Yes            | No      | All                        |
+| `MEMORY`              | Memory utilization, percentage of the request                  | 80             | Yes                               | Yes            | No      | All                        |
+| `CONCURRENCY`         | Concurrent requests, counted at the gateway                    | 100            | Predictor without a transformer   | No             | Yes     | Standard: all but vLLM     |
+| `RPS`                 | Requests per second, counted at the gateway                    | 200            | Predictor without a transformer   | No             | Yes     | Standard: all but vLLM     |
+| `QUEUE_DEPTH`         | Requests waiting in the engine (`vllm:num_requests_waiting`)   | 5              | Yes                               | No             | No      | vLLM                       |
+| `KV_CACHE_USAGE`      | KV-cache in use, percentage (`vllm:kv_cache_usage_perc`)       | 80             | Yes                               | No             | No      | vLLM                       |
+| `RUNNING_REQUESTS`    | Requests being generated (`vllm:num_requests_running`)         | 32             | Yes                               | No             | No      | vLLM                       |
+| `QUEUE_TIME`          | Average queue time over the last minute, ms                    | 1000           | Yes                               | No             | No      | vLLM                       |
+| `TIME_TO_FIRST_TOKEN` | Average time to first token over the last minute, ms           | 2000           | Yes                               | No             | No      | vLLM                       |
+| `REQUEST_LATENCY`     | Average end-to-end request latency over the last minute, ms    | 10000          | Yes                               | No             | No      | vLLM                       |
 
-Knative deployments default to `CONCURRENCY`.
+When no metric is set on a range of instances, a vLLM predictor scales on `QUEUE_DEPTH` under KEDA, every other Standard-mode component on `CPU`, and a Knative component on `CONCURRENCY`.
 See [Knative autoscaling metrics](https://knative.dev/docs/serving/autoscaling/autoscaling-metrics/) for more details on the Knative metrics.
 
-Standard deployments default to `CPU`, and scale between the minimum and maximum instances.
 Setting the minimum and maximum instances to the same value runs a fixed number of replicas instead, with no autoscaler and no scale metric.
-LLM deployments default to a fixed replica count, because every extra replica needs a GPU and GPU-bound pods scale poorly on CPU or memory utilization.
+LLM deployments default to a fixed replica count, because every extra replica needs a GPU.
+
+!!! info "How KEDA sizes the deployment"
+    KEDA runs replicas = ceil(metric value / target).
+    The engine metrics are summed over the instances, and the latency metrics are multiplied by the number of instances, so a latency metric grows and shrinks the deployment in proportion to how far the average sits from its target.
+    The request metrics count at the gateway: traffic sent straight to the predictor Service from inside the cluster is invisible to them, and to scale to zero.
 
 ## Scaling parameters
 
 The following parameters can be used to fine-tune the autoscaling behavior.
+
+| Parameter      | Mode | Default | Range | Description                                                                                                          |
+| -------------- | ---- | ------- | ----- | -------------------------------------------------------------------------------------------------------------------- |
+| `minInstances` | Both | n/a     | ≥ 0   | Minimum replicas; 0 is [scale to zero when idle](#scale-to-zero-when-idle)                                           |
+| `maxInstances` | Both | n/a     | ≥ 1   | Maximum replicas (cannot be less than min)                                                                           |
+
+### KEDA parameters
+
+These apply to a Standard-mode deployment scaled by KEDA.
+They are rejected under KServe's HPA, which ignores them, and in Knative mode.
+
+| Parameter                             | Default                     | Range  | Description                                                                                                                |
+| ------------------------------------- | --------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `scaleDownStabilizationWindowSeconds` | cluster default (300)       | 0–3600 | How long the metric must stay below target before instances are removed                                                    |
+| `scaleUpStabilizationWindowSeconds`   | cluster default (0)         | 0–3600 | How long the metric must stay above target before instances are added                                                      |
+| `additionalScaleMetrics`              | none                        | n/a    | Further metric and target pairs; the most demanding one decides the count. At most one request metric per deployment       |
+| `idleCooldownSeconds`                 | 300                         | 0–3600 | With a minimum of 0: seconds without a request before every instance is removed, independently of the stabilization window |
+| `coldStartTimeoutSeconds`             | 600                         | 1–3600 | With a minimum of 0: how long the first request is held while the deployment wakes                                         |
+
+The cluster defaults of the stabilization windows are set by the administrator in the Helm chart (`kserve.kserve.autoscaler.scaleDownStabilizationWindowSeconds` and `kserve.kserve.autoscaler.scaleUpStabilizationWindowSeconds`, see [KServe values][helm-values-kserve]); empty means the Kubernetes HPA defaults.
+
+### Knative parameters
+
+These apply to a deployment in Knative mode and are rejected in Standard mode.
 See [scale bounds](https://knative.dev/docs/serving/autoscaling/scale-bounds/), [autoscaling concepts](https://knative.dev/docs/serving/autoscaling/autoscaling-concepts/) and [scale-to-zero](https://knative.dev/docs/serving/autoscaling/scale-to-zero/) in the Knative documentation for more details.
 
-| Parameter                     | Mode    | Default | Range  | Description                                                   |
-| ----------------------------- | ------- | ------- | ------ | ------------------------------------------------------------- |
-| `minInstances`                | Both    | n/a     | ≥ 0    | Minimum replicas (0 enables scale-to-zero, Knative mode only) |
-| `maxInstances`                | Both    | n/a     | ≥ 1    | Maximum replicas (cannot be less than min)                    |
-| `panicWindowPercentage`       | Knative | 10.0    | 1–100  | Panic window as percentage of stable window                   |
-| `stableWindowSeconds`         | Knative | 60      | 6–3600 | Stable window duration in seconds                             |
-| `panicThresholdPercentage`    | Knative | 200.0   | > 0    | Traffic threshold to trigger panic mode                       |
-| `scaleToZeroRetentionSeconds` | Knative | 0       | ≥ 0    | Time to retain pods before scaling to zero                    |
-
-The panic, stable window and scale-to-zero retention parameters are Knative Pod Autoscaler settings with no equivalent in a Kubernetes HPA, so a Standard deployment rejects them.
-A Standard deployment also requires at least one instance.
+| Parameter                     | Default | Range  | Description                                 |
+| ----------------------------- | ------- | ------ | ------------------------------------------- |
+| `panicWindowPercentage`       | 10.0    | 1–100  | Panic window as percentage of stable window |
+| `stableWindowSeconds`         | 60      | 6–3600 | Stable window duration in seconds           |
+| `panicThresholdPercentage`    | 200.0   | > 0    | Traffic threshold to trigger panic mode     |
+| `scaleToZeroRetentionSeconds` | 0       | ≥ 0    | Time to retain pods before scaling to zero  |
 
 !!! note "Cluster-level constraints"
-    ==Administrators== can set cluster-wide limits on the maximum and minimum number of instances.
+    ==Administrators== can set cluster-wide limits on the maximum and minimum number of instances (`kube_serving_max_num_instances` and `kube_serving_min_num_instances`).
     When the minimum is set to 0, scale-to-zero is enforced for all Knative deployments.
+    Whether Standard-mode deployments are scaled by KEDA follows `kube_keda_installed`, which the Helm chart sets when it installs KEDA (on by default), see [Cluster Configuration][cluster-configuration].
+
+## Scale to zero when idle
+
+A minimum of **0** instances means scale to zero when idle, in both modes.
+The deployment runs at least one instance while it serves requests, scales between one and the maximum on its metric, and removes all its instances after a period without requests.
+The next request wakes it: the request is held while an instance starts and is answered once the instance is ready, so expect a cold start on the first request after an idle period.
+A deployment at zero instances reports the `IDLE` status, see [Deployment State](deployment-state.md).
+
+- In **Knative** mode, Knative's autoscaler decides to scale to zero once its stable window (60 seconds by default) has seen no traffic, keeps the last pod for `scaleToZeroRetentionSeconds` beyond that, and holds the next request while a pod starts.
+- In **Standard** mode, the KEDA HTTP add-on fronts the deployment.
+  Its interceptor counts the requests to the deployment, KEDA removes every instance once `idleCooldownSeconds` have passed without one, and the interceptor holds the next request for up to `coldStartTimeoutSeconds` while an instance starts and passes its readiness probe.
+  The idle cooldown is independent of the scale-down stabilization window: once it expires, KEDA scales straight to zero, however many instances are running.
+  This requires KEDA on the cluster and a predictor without a transformer.
+  A fresh deployment gets a grace period before it may scale to zero, the larger of the idle cooldown and the cold-start timeout, so a long image pull or model load does not end in an immediate scale-down.
+
+Through the SDK the minimum is 1 unless set, so pass `min_instances=0` for scale to zero.
+The UI defaults a new deployment to a minimum of 0 wherever it can scale to zero.
+A minimum of 0 with a maximum of 1 is one instance while active and zero when idle.
+
+!!! warning "LLM cold starts"
+    An LLM deployment reloads its weights into the GPU on every wake, so the first request after an idle period takes as long as the deployment's first start.
+    Set `coldStartTimeoutSeconds` above the model's load time; a request held longer than the timeout fails.
+    Keep a minimum of 1 for anything with a strict latency objective.
+
+!!! info "Send requests through the endpoint"
+    Scale to zero and the request metrics are measured at the gateway.
+    Use the deployment's endpoint (`deployment.predict()`, the inference URL, or the OpenAI-compatible URL of a vLLM deployment).
+    Traffic sent straight to the predictor Service from inside the cluster never reaches the interceptor and the deployment scales to zero underneath it.
+
+## Rejected configurations
+
+A scaling configuration is validated on create, save and start.
+The request fails with a message naming the rule when it:
+
+- sets a minimum of 0 in Standard mode under KServe's HPA, or on a cluster without KEDA;
+- sets a minimum of 0, or a request metric (`CONCURRENCY`, `RPS`), on a Standard-mode deployment with a transformer;
+- sets `CONCURRENCY` or `RPS` on a vLLM deployment in Standard mode, or an engine metric on another model server;
+- sets the KEDA parameters under KServe's HPA, the Knative parameters in Standard mode, or an `autoscaler` in Knative mode;
+- sets a maximum of 0, or a maximum below the minimum.
+
+## When a deployment does not scale
+
+- **The configuration is not what was sent.**
+  Read it back, see the tip above.
+  A metric on a fixed replica count is cleared, and raising the minimum from 0 drops the idle timeouts.
+- **The metric does not see the load.**
+  Request metrics and scale to zero count at the gateway, so send load through the endpoint.
+  Utilization metrics are a percentage of the resource *request*, not the limit: a predictor requesting 2 cores that uses 1 sits at 50%.
+- **The maximum is already reached**, by the deployment's own maximum or the administrator's limit; a second vLLM instance also needs a second free GPU.
+- **Scale-in waits.**
+  While the deployment is active, KEDA waits for the scale-down stabilization window after the metric drops and KServe's HPA for its own 5-minute window.
+  Scale to zero follows its own clock: the idle cooldown after the last request, after which KEDA removes every instance at once; a fresh deployment also gets the initial grace period.
+- **It does not wake.**
+  The cold start must finish within `coldStartTimeoutSeconds`, which for an LLM means the full weight load.
+  The deployment's Grafana dashboards, linked from the deployment overview, show the instance count, the KEDA trigger values and the request and engine panels.
+  See the [Troubleshooting guide](troubleshooting.md) for the deployment logs.
 
 ================================================================================
 # Scheduling
@@ -30029,8 +30834,12 @@ See [Cluster Configuration][cluster-configuration] for how to view and change th
 | `kube_hopsworks_user` | String | `hopsworks` | Settings.java |
 | `kube_image_builder_service_account` | String | `image-builder` | Settings.java |
 | `kube_img_pull_policy` | String | `Always` | Settings.java |
+| `kube_keda_http_interceptor_address` | String | *(empty string)* | Settings.java |
+| `kube_keda_http_scaler_address` | String | *(empty string)* | Settings.java |
+| `kube_keda_installed` | Boolean | `false` | Settings.java |
 | `kube_keystore_key` | String | `adminpw` | Settings.java |
 | `kube_keystore_path` | String | `/srv/hops/certs-dir/kube/hopsworks/hopsworks__kstore.jks` | Settings.java |
+| `kube_knative_domain_name` | String | `hopsworks.ai` | Settings.java |
 | `kube_knative_lb_domain` | String | *(empty string)* | Settings.java |
 | `kube_kserve_installed` | Boolean | `false` | Settings.java |
 | `kube_kserve_tensorflow_version` | String | *(empty string)* | Settings.java |
@@ -34392,6 +35201,140 @@ A catalog whose `${HOPSWORKS_SECRET:<name>}` reference no longer resolves cannot
 The repair reports it, leaves any file it already has in place, because that copy resolved when it was approved and still works, and carries on with every other catalog.
 Its owner has to repoint the reference at an existing secret.
 
+## Access control and sharing
+
+The query engine decides who can read what with Trino's file-based access control, from a rules file published into the Trino files store as `access-control/rules.json`.
+Hopsworks owns that file and rebuilds it whenever a share changes, and on a schedule every five minutes by default.
+
+The file is composed from two parts:
+
+- The base policy, from the Helm value `trino.accessControl.rules`, which the chart renders into the ConfigMap `hopsworks-trino-access-control-base`.
+  It grants each project its own catalogs and feature store, and each user their private catalogs, written only from projects where the user is a Data Owner.
+  Administrators see every catalog but read only `system`, `tpch` and `tpcds`, because the query engine's administrator is also the identity Hopsworks itself uses, and a view recorded as owned by it would otherwise read any project's data.
+  The administrators' SQL console therefore cannot read a project's tables; query them as a member of the project.
+- One set of rules per share, for [catalog shares and feature group shares][sharing-catalogs-and-feature-groups].
+  A share names the receiving project's existing `<project>__data_owner` and `<project>__data_scientist` groups, so sharing never changes the group file.
+
+Change the base policy through the Helm value and an upgrade.
+An edit to the published `rules.json` is overwritten by the next rebuild, within minutes.
+
+Every rebuilt file is validated before it is published, and a file that fails validation is not published: the shares that caused it are marked **Failed** with the reason, and the file in place stays as it was.
+After publishing, Hopsworks checks that the query engine still answers once it has re-read the file, and restores the last file that worked if it does not, because Trino refuses every query while its rules file is unreadable.
+
+### The shared feature store catalogs
+
+The chart ships two kinds of catalog over the feature store:
+
+- `delta`, `hudi`, `iceberg` and `hive` impersonate the querying user, so HopsFS permissions apply on top of the access-control rules.
+  They serve a project's own feature groups, and feature groups or feature stores shared whole, which HopsFS grants the receiving project.
+- `delta_shared`, `hudi_shared` and `iceberg_shared` do not impersonate.
+  They read HopsFS as the `trino` user, which is a HopsFS superuser, because a feature group shared with a subset of its features grants the receiving project no HopsFS access.
+
+For the second kind the access-control rules are the only gate.
+The base policy grants nobody access to them, not even administrators, and Hopsworks adds a rule per subset share that allows the receiving project the shared features of that one table and denies the rest.
+They are read-only at the connector as well, so no rule can let a query write through them.
+Do not add rules for these catalogs to the base policy: any rule that reaches one of them reads every project's feature store.
+Administrators are denied them because Trino runs a view as the user recorded as its owner, so a view recorded as owned by an administrator would reach them too.
+
+### Reading the rules file
+
+The rules the query engine enforces can be read under **Cluster Settings** → **Query Engine** → **Files**, as `access-control/rules.json`.
+Beside it, `access-control/rules.json.last-good` is the last file the query engine loaded.
+They differ from a publish until Hopsworks confirms the query engine loaded the new file, a few seconds later.
+If they stay different, the new file is not confirmed yet, for example because the query engine was unreachable, and the next reconcile checks again.
+That check only happens while **trino_reconcile_enabled** is on.
+A file the query engine refused does not stay: the last good file goes back in its place, and the shares the refused file added are marked **Failed**.
+The groups the rules name are in `auth/group.db`.
+
+#### Who the rules match
+
+A query runs as a principal named `<project>__<username>`, for example `seeda__seed1000` for user `seed1000` in project `seeda`.
+Its groups are the member's role in that project, `<project>__data_owner` or `<project>__data_scientist`, and `<owner>__shared_featurestore` for each project `<owner>` whose feature store is shared with that project.
+Group `admin` has one member, the query engine administrator, which is the identity Hopsworks itself uses.
+Project names and usernames cannot contain `__`, so a pattern such as `.*__(.*)` splits a principal unambiguously, and `$1` in a later field stands for what the pattern captured.
+
+Each section of the file (`catalogs`, `schemas`, `tables`, `functions`, `queries`) is checked on its own.
+In a section, the first rule whose user, group and object all match decides, and a request no rule matches is denied.
+The order of the rules is therefore the policy: a broader rule placed first would answer before a narrower one.
+
+#### The order of the rules
+
+Every section keeps the same order, and the rules Hopsworks adds for shares go in one place in it:
+
+1. The administrator rules.
+2. A deny for each private catalog whose owner's account was deleted, until the catalog is removed.
+   It comes before the private-owner rules because a later account with the same username would match them.
+3. The private-owner rules.
+   They come before the shares so that sharing a private catalog with a project the owner belongs to never narrows the owner's own access.
+4. The share rules.
+5. The rest of the base policy: every project's own catalogs and feature store.
+
+#### The base policy
+
+The `catalogs` section of the base policy, in order:
+
+| Rule | Effect |
+| --- | --- |
+| `group: admin`, `allow: none` on `iceberg_shared`, `delta_shared` and `hudi_shared` | The administrator never sees the shared feature store catalogs. |
+| `group: admin`, `catalog: .*`, `allow: read-only` | The administrator sees every other catalog, without writing to any. |
+| `user: .*__(.*)`, `group: .*__data_owner`, `catalog: _$1__.*`, `allow: all` | The owner of a private catalog reads and writes it from a project where they are a Data Owner. |
+| `user: .*__(.*)`, `catalog: _$1__.*`, `allow: read-only` | The owner reads it from any other project. |
+| `catalog: tpch` and `tpcds`, `allow: read-only` | Everyone reads the sample catalogs. |
+| `catalog: iceberg`, `delta`, `hive`, `hudi`, `allow: all` | Everyone reaches the feature store catalogs; the table rules decide what they read. |
+| `group: (.*)__data_owner`, `catalog: $1__.*`, `allow: all` | A project's Data Owners read and write its catalogs. |
+| `group: (.*)__data_scientist`, `catalog: $1__.*`, `allow: read-only` | Its Data Scientists read them. |
+| `catalog: system`, `allow: read-only` | Everyone reads the `system` catalog. |
+
+The `tables` section follows the same pattern: the administrator reads only `system`, `tpch` and `tpcds`, the private-owner rules mirror the catalog ones, and each project reaches the schema `<project>_featurestore` in the feature store catalogs, all of it for its Data Owners, reading for its Data Scientists and for projects its feature store is shared with.
+The `schemas` section gives schema ownership, which is what creating and dropping schemas needs, to Data Owners only.
+The `functions` section lets everyone run builtin functions, and the Data Owners of a project run the `system` functions of their project's catalogs, such as `system.query` on a JDBC catalog.
+
+#### The rules a share adds
+
+Hopsworks writes the names in a share rule as literals between `\Q` and `\E`, so a name containing regular expression syntax matches only itself.
+A share names the receiving project's two role groups in one pattern, `\Q<project>\E__data_(?:owner|scientist)`, so searching the file for `\Qseedc\E__data_` finds every rule a share to `seedc` added.
+
+A share of catalog `seeda__postgresql` with `seedc`, covering table `public.customers` with column `created` unchecked and column `name` masked, adds these rules:
+
+```json
+{"catalogs": [
+  {"group": "\\Qseedc\\E__data_(?:owner|scientist)", "catalog": "\\Qseeda__postgresql\\E", "allow": "read-only"}
+],
+"tables": [
+  {"group": "\\Qseedc\\E__data_(?:owner|scientist)", "catalog": "\\Qseeda__postgresql\\E",
+   "schema": "\\Qpublic\\E", "table": "\\Qcustomers\\E", "privileges": ["SELECT"],
+   "columns": [{"name": "created", "allow": false}, {"name": "$path", "allow": false},
+               {"name": "name", "mask": "'***'"}]},
+  {"group": "\\Qseedc\\E__data_(?:owner|scientist)", "catalog": "\\Qseeda__postgresql\\E",
+   "schema": "\\Qpublic\\E", "table": "\\Qcustomers\\E\\$.*", "privileges": []}
+],
+"functions": [
+  {"group": "\\Qseedc\\E__data_(?:owner|scientist)", "catalog": "\\Qseeda__postgresql\\E", "privileges": []}
+]}
+```
+
+The list of denied columns in the rule is shortened here.
+
+- The catalog rule makes the catalog visible to the receiving project, read-only.
+- The table rule grants `SELECT` on the table and lists the columns it denies: the unchecked ones, the connector's hidden columns, such as `$path`, and, for an Iceberg or Delta Lake table, every column the table had at a version that can still be read.
+  A table shared whole has a table rule without `columns`, a schema shared whole has `table: .*`, and a catalog shared whole has `schema: .*` too.
+- The rule after it, with no privileges, denies the table's metadata tables, such as `customers$partitions`, which Trino checks by their own name.
+- The function rule denies the receiving project the catalog's functions, which the base policy would otherwise give it.
+  A share of a private catalog also adds, before that deny, a rule letting the owner keep running the catalog's `system` functions.
+
+A feature group shared whole adds one table rule on `hive|iceberg|delta|hudi` for its table in the owner's feature store.
+A feature group shared with a subset of its features adds a catalog rule on the shared catalog of its format, such as `delta_shared`, and a table rule there that denies every unshared feature and hidden column, followed by the metadata table deny.
+
+#### Debugging a share
+
+- The share is **Active** but a query is refused: find the share's rules by the receiving project's group, then look for a rule above them that matches the same principal and object first.
+- The share's rules are not in the file: the share is still **Applying**, or it is **Failed** and its status says why.
+- A column that should be hidden is readable: it is missing from the rule's `columns`.
+  Each publish denies every column the table has at that moment except the shared ones, so a column added at the source is readable only until the next publish, at most one reconcile interval.
+- A narrowed table is refused although its share is **Active**: the last publish could not read the table's columns, or for an Iceberg or Delta Lake table the columns of its earlier versions, so it left the table out of the rules rather than grant it with columns it could not deny; the Hopsworks log names the table.
+  An Iceberg table whose metadata file is outside HopsFS, over 64 MiB or unreadable by that project user is also left out until its earlier columns are read, 50 snapshots per publish.
+- `rules.json` and `rules.json.last-good` differ for minutes: the newest file is not confirmed, so check that the query engine is reachable; the reconcile verifies it again and restores the last good file if the query engine refuses it.
+
 ## Credential files a project supplies
 
 A connector that authenticates with a file, such as an Oracle wallet or a Java keystore, cannot be served by a catalog property alone.
@@ -34479,8 +35422,14 @@ Trino behavior can be customized through cluster configuration variables. To mod
 **Available Variables:**
 
 - **trino_enabled**: Enable or disable Trino cluster-wide (default: `false`)
-- **trino_default_catalog**: Default catalog used for Superset queries (default: `hive`)
+- **trino_default_catalog**: Default catalog of the Superset database connections created for new project members (default: `delta`).
+  Connections created before a change keep the catalog they were created with.
 - **trino_test_coordinator_enabled**: Enable the optional test coordinator that backs the "Test connection" action for user-created catalogs (default: `true`)
+- **trino_reconcile_enabled**: Rebuild the login and group files from the database and republish the access-control rules on the reconcile interval (default: `true`).
+  Do not disable it.
+  It is what confirms a published rules file once the query engine was unreachable when Hopsworks first checked: without it, shares stay **Applying** or **Revoking** and the new file never becomes the last good one, until another share change publishes again.
+  It is also what brings a changed base policy from a chart upgrade to the query engine, and what replaces a rules, login or group file that was edited, corrupted or deleted.
+- **trino_reconcile_interval_ms**: How often the reconcile runs, in milliseconds (default: `300000`)
 - **trino_catalog_reconcile_enabled**: Rebuild the user-catalog Secrets from the database on a schedule, for a cluster that has lost them (default: `false`, see [Recovering catalog files lost from the mount][recovering-catalog-files-lost-from-the-mount])
 - **trino_catalog_max_per_project**: Catalogs a *newly created* project may create (default: `10`).
   It seeds each project's own allowance, which is then edited per project under Cluster Settings, Projects; changing it does not move the allowance of a project that already exists.
@@ -34532,6 +35481,58 @@ The code's defaults apply until an administrator creates one, so searching for t
 | `max_mountable_secret_upload_bytes` | `33554432` | largest upload request, refused before the body is read |
 
 Turning the store off is described in [Turning the store off][turning-the-store-off].
+
+#### How sharing scales
+
+Every change to a share, and every reconcile, publishes the whole rules file again.
+A publish reads the current columns of each table a share narrows to some of its columns, one statement per table, so its duration grows with the number of distinct narrowed tables across all shares.
+A narrowed Iceberg or Delta Lake table also has the columns of its earlier versions read:
+
+- An Iceberg table on HopsFS: one more statement, and a read of its current metadata file, which lists every schema the table has had.
+  Hopsworks reads the file as the project user the table's columns are read as, only up to 64 MiB, and uses it only when it names the snapshot Trino reports for it.
+- Any other Iceberg table: two more statements, and one per snapshot not read before: one per schema the table has had, and every snapshot older than its metadata log, which keeps the last 100 entries by default.
+  At most 50 snapshots are read per publish; a table with more is left out until later publishes have read them all.
+  A table with more than 10,000 such snapshots cannot be listed and is left out; expiring old snapshots, or keeping the table on HopsFS, avoids it.
+- A Delta Lake table: one statement that reads the commits since the last publish, or every commit still in the table's log the first time, and on that first read one more for the oldest of them.
+  The statement reads back from the newest commit to the first missing one, so versions before a gap in the log are not read; only log files removed by hand leave such a gap.
+
+Each Hopsworks instance keeps what it has read in memory, so after a restart its first publish reads each table's history in full once.
+It reads it again at least once a day: a Delta Lake table in full on that publish, an Iceberg table's snapshots 50 per publish while the earlier reads still count, so the table is never left out for it.
+A publish forgets the tables no share narrows any more.
+Measured on a development cluster, as extra time per narrowed table on top of reading its current columns:
+
+| Table | 1 commit | 100 commits | 300 commits |
+| --- | --- | --- | --- |
+| Delta Lake feature group, first read | 0.1 s | 1.9 s | 6.6 s |
+| Delta Lake feature group, later publishes | not measured | not measured | none measurable |
+| Iceberg table on HopsFS (metadata file size) | 0.1 s (4 KB) | 0.1 s (203 KB) | 0.3 s (556 KB) |
+| Iceberg table read through its snapshots, snapshots to read | 1 | 3 | 201 |
+
+A later publish of the 300-commit table, reading from the 290th or 299th commit, took as long as `SELECT 1`.
+Reading the current columns of the Delta Lake table also grew, from 0.5 s at 100 commits to 2.7 s at 300.
+
+Saving, editing or revoking a share returns once the share is recorded; the share shows **Applying** or **Revoking** until the publish has run and the query engine has loaded the file, about 15 seconds after the publish ends.
+Changes made while a publish runs are applied together by the next one.
+
+Measured on a development cluster with a PostgreSQL source, which has no earlier versions to read: four shares, each of a project catalog or a private catalog with one of two projects, each narrowed to N tables with two of their six columns shared.
+
+| Tables per share | Narrowed tables in the rules | Publish duration | `rules.json` size | Table rules | Median query time |
+| --- | --- | --- | --- | --- | --- |
+| 0 (one schema shared whole) | 0 | 5.6 s | 25 KB | 35 | 0.9 s |
+| 25 | 100 | 10.9 s | 204 KB | 231 | 0.9 s |
+| 100 | 400 | 21 s | 744 KB | 831 | 0.9 s |
+| 300 | 1,200 | not measured | 2.19 MB | 2,431 | 0.9 s |
+
+The query time is through the Hopsworks API, for a receiving project, the catalog's owner and `SELECT 1` alike, and did not change with the size of the file.
+The publish duration at 300 tables per share was not measured on its own.
+With the four shares saved one after another, a save took 5 to 7 seconds at 100 tables per share and 16 to 17 seconds at 300, mostly checking the tables and columns the share names, and all four shares were **Active** 41 and 119 seconds after the last save.
+A publish costs about 75 ms per distinct narrowed table on top of a fixed 5 seconds.
+The file grows by about 1.8 KB per narrowed table, mostly the hidden columns each narrowed rule denies.
+
+With the file above about a megabyte, a query once failed with `Invalid JSON file '/opt/hopsworks/trino/access-control/rules.json'` caused by `java.io.IOException: Input/output error`.
+The query engine reads the file through the HopsFS mount, and the read failed while a new file was replacing it; the file itself was complete.
+The query succeeds when run again.
+Hopsworks does not take such a read failure for a broken file, so it neither restores the last good file nor fails the shares being applied.
 
 ### Test coordinator resource cost
 
@@ -34782,8 +35783,10 @@ In **Cluster Settings**, choose **Configuration** under _Infrastructure_ in the 
 #### trino_default_catalog
 
 - **Description**: Default catalog to use for the Offline Feature Store Connection
-- **Default**: `hive`
+- **Default**: `delta`
 - **Values**: `hive`, `delta`, `iceberg`, and `hudi`.
+
+The value is applied when a member's connection is created, so connections created before a change keep the catalog they were created with.
 
 Trino connections are created with multi-catalog enabled (Superset's **Allow changing catalogs** option), so users are not limited to this default.
 They select the catalog matching their table format from the **Catalog** dropdown in SQL Lab or when adding a dataset.
@@ -34805,24 +35808,411 @@ After modifying any configuration variable:
 - **Documentation**: Document any custom configuration changes and update your Helm values accordingly.
 
 ================================================================================
-# Helm Chart Values Reference
+# Helm chart values reference
 Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/
 
 # Helm chart values reference
 
-This page lists every value you can configure when deploying Hopsworks with the Hopsworks Helm chart.
-It is generated from the `README.md` files of the chart and its subcharts.
+This section lists every value you can configure when deploying Hopsworks with the Hopsworks Helm chart, with one page per top-level key.
+It is generated from the `README.md` files of the chart and its subcharts, and for RonDB from the `values.schema.json` of the RonDB chart that Hopsworks pins.
 On a released version of the docs it matches the Hopsworks Helm chart for that release; on the development docs it reflects the latest chart published to the development channel.
 
 You set these values in the `values.<cloud>.yaml` file that you pass to `helm install`.
 For a guided, end-to-end setup, follow one of the cloud installation guides, such as the [AWS getting started guide][aws-getting-started-with-eks].
-Only a small subset of these values is needed for a typical install; the table below is the exhaustive reference.
+Only a small subset of these values is needed for a typical install: "Common values" below lists the ones the cloud installation guides set, and the pages are the exhaustive reference.
 
-## Configuration values
+"All values" lists the pages.
+Each page states when its subchart is deployed: when the condition names several values, Helm uses the first one that is set.
+"Upstream charts" are the charts a subchart installs from other Helm repositories, and each link opens a chart's documentation for the version Hopsworks pins.
+A page lists only the values Hopsworks sets for its upstream charts, except the RonDB page, which lists all of the RonDB chart's values.
+A default is the value Hopsworks deploys: the root chart's settings for a subchart are applied over the subchart's own defaults.
+Every value has its own link (the `#` next to its key), and each section has its defaults as a values file under "Defaults as YAML".
 
 <!-- BEGIN GENERATED VALUES -->
+
+_The values tables are generated from the Hopsworks Helm chart during the documentation build._
+_To preview them locally, run `uv run --extra cli hopsworks-docs gen-helm-values --chart <path-to-hopsworks-helm>`, and `uv run hopsworks-docs reset-helm-values` before committing._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# global
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/global/
+
+# Global values { #helm-values-global }
+
+Values under `global` are shared by every subchart: image registry and pull secrets, storage class, scheduling, cloud provider and which optional services are enabled.
+
+<!-- BEGIN GENERATED VALUES -->
+
 _The values table is generated from the Hopsworks Helm chart during the documentation build._
-_To preview it locally, run `uv run --extra cli hopsworks-docs gen-helm-values --chart <path-to-hopsworks-helm>`._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# airflow
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/airflow/
+
+# Airflow values { #helm-values-airflow }
+
+Values under `airflow` configure Apache Airflow, which schedules and orchestrates Hopsworks jobs.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# arrowflight
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/arrowflight/
+
+# Arrow Flight values { #helm-values-arrowflight }
+
+Values under `arrowflight` configure the Arrow Flight server, which serves fast reads of feature groups and training datasets.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# certs-operator
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/certs-operator/
+
+# Certs operator values { #helm-values-certs-operator }
+
+Values under `certs-operator` configure the operator that issues the TLS certificates of the Hopsworks services and removes them on uninstall.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# consul
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/consul/
+
+# Consul values { #helm-values-consul }
+
+Values under `consul` configure Consul, which provides service discovery and DNS between the Hopsworks services.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# docker-registry
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/docker-registry/
+
+# Docker registry values { #helm-values-docker-registry }
+
+Values under `docker-registry` configure the in-cluster Docker registry that stores the images Hopsworks builds, such as project Python environments.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# grafana
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/grafana/
+
+# Grafana values { #helm-values-grafana }
+
+Values under `grafana` configure Grafana and the Hopsworks monitoring dashboards.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hive
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hive/
+
+# Hive values { #helm-values-hive }
+
+Values under `hive` configure the Hive metastore, which holds the table metadata of the offline feature store.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hopsfs
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hopsfs/
+
+# HopsFS values { #helm-values-hopsfs }
+
+Values under `hopsfs` configure HopsFS, the distributed file system behind datasets and the offline feature store.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hopsfs-csi
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hopsfs-csi/
+
+# HopsFS CSI driver values { #helm-values-hopsfs-csi }
+
+Values under `hopsfs-csi` configure the CSI driver that mounts HopsFS into pods.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hopsworks
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hopsworks/
+
+# Hopsworks values { #helm-values-hopsworks }
+
+Values under `hopsworks` configure the Hopsworks backend: the Payara worker and admin deployments, ingress, the certificate authority, database migrations and backups.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hw-keda
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hw-keda/
+
+# KEDA values { #helm-values-hw-keda }
+
+Values under `hw-keda` configure KEDA and its HTTP add-on, the autoscaler of Standard-mode model deployments: it scales them on CPU and memory, on the requests at the gateway and on the vLLM engine metrics, and scales them to zero when idle.
+The subchart is installed when `hopsworks.variables.kube_keda_installed` is true (the default), which also tells the Hopsworks backend to offer KEDA-backed scaling; without it, Standard-mode deployments fall back to KServe's own Horizontal Pod Autoscaler on CPU and memory.
+See [How To Configure Scaling For A Deployment][how-to-configure-scaling-for-a-deployment] for what deployments can do with it.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hw-kueue
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hw-kueue/
+
+# Kueue values { #helm-values-hw-kueue }
+
+Values under `hw-kueue` configure Kueue, the job queueing controller, and the queues Hopsworks schedules jobs with.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# hw-kyverno
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/hw-kyverno/
+
+# Kyverno values { #helm-values-hw-kyverno }
+
+Values under `hw-kyverno` configure the Kyverno cluster policies and the policy exceptions Hopsworks workloads need.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# judge
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/judge/
+
+# Judge values { #helm-values-judge }
+
+Values under `judge` configure Judge, the active cluster arbitrator service.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# kafka
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/kafka/
+
+# Kafka values { #helm-values-kafka }
+
+Values under `kafka` configure Kafka, run by the Strimzi operator, which carries feature data on its way to the online feature store.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# kserve
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/kserve/
+
+# KServe values { #helm-values-kserve }
+
+Values under `kserve` configure KServe and Knative Serving, which run model deployments, including the cluster defaults for the stabilization windows of Standard-mode deployments scaled by KEDA (`kserve.kserve.autoscaler`, see [KEDA values][helm-values-hw-keda]).
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# minio
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/minio/
+
+# MinIO values { #helm-values-minio }
+
+Values under `minio` configure MinIO, an S3-compatible object store deployed inside the cluster.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# olk
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/olk/
+
+# OpenSearch values { #helm-values-olk }
+
+Values under `olk` configure OpenSearch, OpenSearch Dashboards, Logstash and Filebeat, which provide search, the vector index and service logs.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# onlinefs
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/onlinefs/
+
+# OnlineFS values { #helm-values-onlinefs }
+
+Values under `onlinefs` configure OnlineFS, which consumes feature rows from Kafka and writes them to RonDB.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# prometheus
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/prometheus/
+
+# Prometheus values { #helm-values-prometheus }
+
+Values under `prometheus` configure Prometheus, which collects cluster and service metrics, and the Prometheus adapter, which exposes them to autoscalers.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# ray
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/ray/
+
+# Ray values { #helm-values-ray }
+
+Values under `ray` configure the KubeRay operator, which runs the Ray clusters behind Ray jobs and notebooks.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# rondb
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/rondb/
+
+# RonDB values { #helm-values-rondb }
+
+Values under `rondb` configure RonDB, the online feature store database, installed from the RonDB Helm chart.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# spark
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/spark/
+
+# Spark values { #helm-values-spark }
+
+Values under `spark` configure the Spark operator, the Spark history server and the remote shuffle service.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# superset
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/superset/
+
+# Superset values { #helm-values-superset }
+
+Values under `superset` configure Apache Superset, the BI dashboards over feature store data.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# trino
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/trino/
+
+# Trino values { #helm-values-trino }
+
+Values under `trino` configure Trino, the SQL query engine, and its test coordinator for user catalogs.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
+<!-- END GENERATED VALUES -->
+
+================================================================================
+# vpa
+Source: https://docs.hopsworks.ai/latest/setup_installation/common/helm_chart_values/vpa/
+
+# Vertical Pod Autoscaler values { #helm-values-vpa }
+
+Values under `vpa` configure the Vertical Pod Autoscaler: its admission controller, recommender and updater.
+
+<!-- BEGIN GENERATED VALUES -->
+
+_The values table is generated from the Hopsworks Helm chart during the documentation build._
+
 <!-- END GENERATED VALUES -->
 
 ================================================================================
@@ -36682,6 +38072,11 @@ Source: https://docs.hopsworks.ai/latest/python-api/hsfs/storage_connector/
       heading_level: 2
       show_root_heading: true
 
+::: hsfs.storage_connector.ElasticsearchConnector
+    options:
+      heading_level: 2
+      show_root_heading: true
+
 ::: hsfs.storage_connector.GcsConnector
     options:
       heading_level: 2
@@ -37227,6 +38622,11 @@ Source: https://docs.hopsworks.ai/latest/python-api/hsml/scaling_config/
       heading_level: 1
       members: false
       show_root_full_path: true
+      show_root_heading: true
+
+::: hsml.scaling_config.Autoscaler
+    options:
+      heading_level: 2
       show_root_heading: true
 
 ::: hsml.scaling_config.ComponentScalingConfig
