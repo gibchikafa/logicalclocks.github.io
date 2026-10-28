@@ -301,7 +301,7 @@ async def chat(request, ctx):
     order = await find_order(request.text)
     answer = ctx.interrupt(
         f"Refund {order.amount} to order {order.id}?",
-        key=f"refund-{order.id}",
+        key=f"refund-{order.id}-{order.amount}",
         response_schema={
             "type": "object",
             "properties": {"approved": {"type": "boolean"}},
@@ -320,6 +320,8 @@ The answer resumes the turn with a new run on the same thread whose `resume` ans
 
 - Everything before the call runs again when the turn resumes, so ask before acting, never after.
 - `key` names the question the same way on every run of the turn; without it the question is named by its place in the turn.
+  Name the action and what it does (`refund-42-40EUR`), not only what it is about (`refund-42`): an answer is taken only when the resumed turn asks the same question again (the same message, reason, schema, tool call and metadata), because the turn runs again and may not ask the same thing, for example when the order's amount changed while it was paused. A question that changed is asked again, and the earlier answer is dropped.
+- A client that hangs up while a resumed turn is acting on an answer does not get the question back: the agent lets the turn finish and settles the question from what it did, and a retry meanwhile is refused (`resume_in_progress`), so the approved action runs once.
 - The agent keeps the paused turn's request and what it asked, so a resume carries only the answers and the turn runs again with the same message and context. A resume that answers a question that was not asked, or one that has expired, is refused, and so is one on a conversation that is not waiting on a question (answered already): send the message again instead.
 - With agent memory, the open questions are stored with it, so any replica can take the answer and a restart forgets nothing; two replicas given the same answer do not both act on it. Without memory they are kept by the replica that asked, and an answer that reaches another one is refused.
 - The stored question is deleted once it is answered, when a new message moves the conversation on instead, or when the conversation is deleted.
