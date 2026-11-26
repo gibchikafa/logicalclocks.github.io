@@ -131,12 +131,13 @@ kubectl get crd gateways.gateway.networking.k8s.io -o jsonpath='{.metadata.annot
 
     | API group | Resources | Verbs |
     | --------- | --------- | ----- |
-    | `gateway.networking.k8s.io` | `httproutes`, `referencegrants` | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` |
+    | `gateway.networking.k8s.io` | `httproutes`, `grpcroutes`, `referencegrants` | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` |
     | `gateway.networking.k8s.io` | `gateways` | `get`, `list`, `watch` |
     | `gateway.envoyproxy.io` | `securitypolicies` | `get`, `list`, `watch`, `create`, `update`, `patch`, `delete` |
     | `""` | `namespaces` | `get`, `patch` |
     | `discovery.k8s.io` | `endpointslices` | `get`, `list` |
 
+    `grpcroutes` serve the gRPC binding of agent deployments on their [hostnames][a2a-agent-hostnames].
     The last two rows are usually in place already, because Hopsworks needs them for other features.
     Add the Gateway rows before you turn the feature on, and keep them until it is fully turned off: Hopsworks needs them to move the deployments back to Istio.
 

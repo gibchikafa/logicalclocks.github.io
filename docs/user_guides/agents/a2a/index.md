@@ -1,5 +1,5 @@
 ---
-description: How an agent deployment speaks A2A, the Agent2Agent protocol, so other agents and A2A clients can discover it and delegate work to it: the Agent Card, messages and tasks, streaming, artifacts, questions for a person, where tasks are kept, who may see them, push notifications, the signed card, and calling one from Python.
+description: How an agent deployment speaks A2A, the Agent2Agent protocol, so other agents and A2A clients can discover it and delegate work to it: the Agent Card, messages and tasks, streaming, artifacts, questions for a person, where tasks are kept, who may see them, push notifications, the signed card, the agent's own hostname, the public card, gRPC, the agent directory, and calling one from Python.
 ---
 
 # A2A on Hopsworks
@@ -22,6 +22,7 @@ Only an agent on an image with this SDK serves a card; an agent on an older imag
 | `POST /a2a` | The JSON-RPC binding: `SendMessage`, `SendStreamingMessage`, `GetTask`, `ListTasks`, `CancelTask`, `SubscribeToTask` |
 | `/a2a/rest/...` | The HTTP+JSON binding of the same operations, for example `POST /a2a/rest/message:send` and `GET /a2a/rest/tasks/{id}` |
 | `GET /a2a/artifacts/{task}/{digest}` | A [large part][a2a-large-artifacts] of a task, for whoever may read the task |
+| gRPC, `<host>:443` | The [gRPC binding][a2a-grpc] of the same operations, on the agent's [hostname][a2a-agent-hostnames] |
 
 The routes sit under the deployment's URL, behind the same gateway as the chat routes, so an A2A client authenticates exactly as the chat panel does: `Authorization: ApiKey <serving api key>` or a bearer session token.
 The card says so in its security schemes.
@@ -58,7 +59,7 @@ agent_app = AgentApp(
 `input_media_types=` and `output_media_types=` replace the derived lists when an agent takes more or less than its modalities say.
 `a2a=False` removes the card and the routes.
 
-The interface URLs in the card are the deployment's public URL, which Hopsworks sets on the pod.
+The interface URLs in the card are the deployment's public URL, which Hopsworks sets on the pod: the agent's [hostname][a2a-agent-hostnames] when it has one, the path form otherwise.
 An agent run locally derives them from each request instead.
 The card also carries the 0.3 `url`, `preferredTransport` and `protocolVersion` fields, so a client of the previous protocol version can discover the agent.
 
@@ -182,7 +183,7 @@ Set `HOPSWORKS_AGENT_A2A_DATABASE_URL` to an async SQLAlchemy URL, for example `
 
 The manifest says which store is in use, as `task_store: "database"` or `task_store: "memory"` under `capabilities.custom.hopsworks.a2a`.
 
-## Who may see a task
+## Who may see a task { #a2a-who-may-see-a-task }
 
 By default every holder of the deployment's credential sees every task of the deployment, the same way the conversation routes work, see [Agent Memory][agent-memory].
 
@@ -313,6 +314,7 @@ The cluster's own inference gateway is always listed, so one agent deployment ca
 For that, give the push config a callback key of the receiving deployment as its credential, `{"scheme": "ApiKey", "credentials": "<callback key>"}`.
 A callback key is issued by `POST /hopsworks-api/api/project/{projectId}/serving/{servingId}/agents/callback-key`, which answers `{"key": "...", "expiresAt": "..."}`.
 The key opens only `POST /a2a/notifications` of that deployment, and expires after the task retention period.
+It works on both inference gateways, Istio and [Envoy Gateway][envoy-gateway], and on the deployment's [hostname][a2a-agent-hostnames] as `POST https://<host>/a2a/notifications`.
 Redirects are not followed.
 
 ### Delivery
@@ -327,7 +329,7 @@ The terminal event is owed until it was delivered: when the replica could not de
 A receiver may therefore see the same event twice.
 Write the receiver to tolerate duplicates, and to read the task with `GetTask` for its current state rather than rebuild it from notifications.
 
-## The extended card, and the signature
+## The extended card, and the signature { #a2a-extended-card }
 
 `GetExtendedAgentCard` returns the card with what the agent's manifest knows, for a caller that authenticated.
 The memory tiers, the conversation and feedback endpoints, tool events and the graph are under the `agent` parameter of the [Hopsworks extension](#the-hopsworks-extension).
@@ -368,6 +370,167 @@ async def verified_card():
 
 `get_agent_card` raises when the card carries no signature that verifies against the cluster's keys.
 
+## The agent's hostname { #a2a-agent-hostnames }
+
+A2A discovery expects an agent at the root of a host: a client given `https://advisor.example.com` reads the card at `https://advisor.example.com/.well-known/agent-card.json`.
+When an administrator configures a domain for agents, every agent deployment gets a hostname of its own under it, and serves A2A at the root of that hostname.
+
+| What | Where |
+| --- | --- |
+| The Agent Card | `https://<host>/.well-known/agent-card.json` |
+| JSON-RPC | `https://<host>/a2a` |
+| HTTP+JSON | `https://<host>/a2a/rest/...` |
+| gRPC | `<host>:443` |
+| A callback key's notifications | `POST https://<host>/a2a/notifications` |
+
+The hostname is `<label>.<domain>`, where the label comes from a template the administrator sets, `{deployment}-{servingId}` by default.
+For deployment `churn_analyst` with serving id 42 under `agents.example.com`, that is `churn-analyst-42.agents.example.com`.
+The label is lower-cased, every character other than a letter, a digit or `-` becomes `-`, and a label longer than 63 characters is shortened before the serving id, which it keeps.
+A deployment deleted and created again under the same name gets a new serving id, and so a new hostname: a client holding the old hostname does not reach the new deployment.
+
+The hostname takes the same credential as every other route, `Authorization: ApiKey <serving api key>` or a bearer session token, and is checked by the gateway the same way.
+The path form, `https://<inference-lb>/v1/<project-namespace>/<deployment>/...`, keeps working next to it.
+The card names the hostname's URLs, and its [signature][a2a-extended-card] covers them.
+Without a certificate configured, the hostnames are served over HTTP on port 80, and the URLs start with `http://`.
+
+The deployment page shows the hostname and the gRPC endpoint in its *A2A* section.
+The manifest says the same under `capabilities.custom.hopsworks.a2a`: `hostname`, `grpc` and `public_card`.
+A deployment without a hostname keeps the path form, and the manifest says why under `hostname_off`.
+
+| `hostname_off` | Why |
+| --- | --- |
+| `no_domain` | The administrator configured no domain for agents |
+| `knative_mode` | The deployment runs in Knative mode on a cluster whose inference gateway is [Envoy Gateway][envoy-gateway], where Knative-mode deployments stay on Istio |
+| `not_set` | The agent runs locally, or on a Hopsworks version without agent hostnames |
+
+The administrator's side is in [cluster settings][a2a-helm-values].
+
+## The public Agent Card { #a2a-public-card }
+
+By default the card needs a credential, like every other route.
+A deployment can make its card public, so that other agents and A2A clients can discover it without one:
+
+```python
+import hopsworks
+
+
+project = hopsworks.login()
+agents = project.get_agent_serving()
+
+agent = agents.deploy_agent(
+    "churn_analyst.py",
+    name="churn_analyst",
+    environment="churn_analyst",
+    public_card=True,
+)
+```
+
+In the deployment form the same switch is *Public Agent Card*, and in the terminal `hops agent create ... --public-card`.
+A redeploy that leaves `public_card` out keeps the deployment's setting, and a running deployment applies a change when it restarts.
+
+Two conditions make the card public:
+
+- The administrator allows public cards, see [cluster settings][a2a-helm-values].
+  When the cluster does not allow them, `public_card=True` is refused with HTTP `400`, and the switch in the form is disabled with a hint.
+- The deployment has a [hostname][a2a-agent-hostnames]: the public card is served only there.
+
+An anonymous caller then gets exactly one thing, `GET https://<host>/.well-known/agent-card.json`, which answers with the public card, the same card an authenticated caller reads, with its signature.
+The [extended card][a2a-extended-card], the tasks, the chat routes and the path form still need a credential.
+A [private agent][a2a-who-may-see-a-task] stays private: its card is public, and every other request still needs a caller.
+Do not put anything in the card's name, description or skills that you would not publish.
+
+## gRPC { #a2a-grpc }
+
+A deployment with a hostname also serves the A2A gRPC binding at `<host>:443`, with TLS, or `<host>:80` in plain text without a certificate configured.
+The card lists it as a `GRPC` interface after the HTTP ones, so a client that prefers gRPC picks it from the card.
+
+Two gRPC services are served:
+
+- `lf.a2a.v1.A2AService`, A2A 1.0.
+- `a2a.v1.A2AService`, A2A 0.3, for clients of the previous protocol version.
+
+The same handler answers both, and the HTTP bindings, so a task sent over gRPC is read, followed and cancelled over JSON-RPC and the other way round.
+The credential travels as gRPC metadata, `authorization: ApiKey <serving api key>`.
+A call without one is refused by the gateway, and a [private agent][a2a-who-may-see-a-task] reads its caller from the gateway as it does over HTTP.
+
+gRPC is served only for deployments in Standard mode: a Knative-mode deployment gets no gRPC binding, and its manifest says `grpc: false`.
+The administrator can turn gRPC off for the cluster, see [cluster settings][a2a-helm-values].
+The agent image includes `grpcio`; an agent whose environment lacks it serves the HTTP bindings only, and its card names no gRPC interface.
+
+With the official Python SDK, installed with `pip install "a2a-sdk[grpc]"`:
+
+```python
+import uuid
+
+import grpc
+import httpx
+from a2a.client import A2ACardResolver, ClientCallContext, ClientConfig, ClientFactory
+from a2a.types import Message, Part, Role, SendMessageRequest
+from a2a.utils.constants import TransportProtocol
+
+base = "https://<host>"
+metadata = {"authorization": f"ApiKey {serving_key}"}
+
+
+def secure_channel(url):
+    return grpc.aio.secure_channel(url, grpc.ssl_channel_credentials())
+
+
+async def ask_over_grpc():
+    async with httpx.AsyncClient(headers=metadata) as http:
+        card = await A2ACardResolver(http, base).get_agent_card()
+    config = ClientConfig(
+        grpc_channel_factory=secure_channel,
+        supported_protocol_bindings=[TransportProtocol.GRPC],
+        streaming=False,
+    )
+    client = ClientFactory(config).create(card)
+    context = ClientCallContext(service_parameters=metadata)
+    request = SendMessageRequest(
+        message=Message(
+            message_id=str(uuid.uuid4()),
+            role=Role.ROLE_USER,
+            parts=[Part(text="Which segments churned most last quarter?")],
+        )
+    )
+    async for event in client.send_message(request, context=context):
+        print(event.task.status.state)
+    await client.close()
+```
+
+`service_parameters` go out as gRPC metadata on every call of the client.
+`grpc.ssl_channel_credentials()` trusts the system's certificate authorities; pass `root_certificates=` when the agent domain's certificate is issued by your own.
+
+## The agent directory { #a2a-agent-directory }
+
+Every project lists its agents and their cards, for a person in the UI and for an agent that looks for another one.
+In the UI it is under the project's settings, *Agents*: each agent deployment with its status, its URL or hostname, and a summary of its card, which is its description, its skills, its bindings and whether it is signed.
+
+The same list is served by `GET /hopsworks-api/api/project/{projectId}/agents/cards`, to the project's Data Owners and Data Scientists, with a bearer session token or an API key with the `SERVING` scope:
+
+```json
+{
+  "items": [
+    {
+      "servingId": 42,
+      "name": "churn_analyst",
+      "status": "Running",
+      "url": "https://churn-analyst-42.agents.example.com",
+      "hostname": "churn-analyst-42.agents.example.com",
+      "publicCard": true,
+      "card": {"name": "Churn analyst", "supportedInterfaces": ["..."]},
+      "error": null
+    }
+  ]
+}
+```
+
+- `url` is where other agents reach the deployment: its hostname, or the path form when it has none, in which case `hostname` is `null`.
+- `card` is the public card the running agent serves, which Hopsworks reads from the agent inside the cluster and keeps for 60 seconds.
+- `card` is `null` for an agent that is not running or did not answer in time, and `error` then says why in a few words.
+
+The directory lists the project's agents to its members whether or not their cards are public.
+
 ## Cluster settings { #a2a-cluster-settings }
 
 An administrator sets these variables on the [Cluster Configuration][cluster-configuration] page.
@@ -382,6 +545,54 @@ Hopsworks reads the reaper interval when it starts.
 | `agent_deployment_task_max_bytes` | `2097152` | The most a stored task holds inline, in bytes, all parts together. |
 | `agent_deployment_task_retention_days` | `30` | How many days a finished task is kept, with its events and its push notification configs. |
 | `agent_deployment_task_reaper_interval_ms` | `15000` | How often, in milliseconds, Hopsworks ends the tasks whose lease nobody renews and delivers the terminal notifications a replica could not. |
+
+### Agent hostnames, public cards and gRPC { #a2a-helm-values }
+
+The [agent hostnames][a2a-agent-hostnames], the [public card][a2a-public-card] and [gRPC][a2a-grpc] are configured in the Helm values of the Hopsworks chart, which set the matching variables on every upgrade.
+
+```yaml
+global:
+  _hopsworks:
+    agents:
+      hostnames:
+        domain: agents.example.com
+        template: "{deployment}-{servingId}"
+        tls:
+          secretName: agents-wildcard-tls
+          issuerRef:
+            name: letsencrypt-dns
+            kind: ClusterIssuer
+hopsworks:
+  agents:
+    publicCards:
+      allowed: true
+    grpc:
+      enabled: true
+```
+
+| Value | Variable | Default | Meaning |
+| --- | --- | --- | --- |
+| `global._hopsworks.agents.hostnames.domain` | `agent_hostname_domain` | empty | The parent domain of the agent hostnames, without a scheme or a wildcard. Empty turns agent hostnames off. |
+| `global._hopsworks.agents.hostnames.template` | `agent_hostname_template` | `{deployment}-{servingId}` | The hostname's label, with the placeholders `{deployment}`, `{servingId}`, `{namespace}` and `{project}`. |
+| `global._hopsworks.agents.hostnames.tls.secretName` | `agent_hostname_scheme` | empty | A Secret in the Hopsworks namespace with a certificate for `*.<domain>`. Set, the hostnames are served over HTTPS on port 443; empty, over HTTP on port 80. |
+| `global._hopsworks.agents.hostnames.tls.issuerRef` | | empty | A cert-manager issuer, `{name, kind}`. Set, the chart requests the wildcard certificate from it and stores it in `secretName`, which must then be set too. |
+| `hopsworks.agents.publicCards.allowed` | `agent_public_cards_allowed` | `false` | Whether a deployment may make its card public. |
+| `hopsworks.agents.grpc.enabled` | `agent_grpc_enabled` | `true` | Whether Standard-mode agent deployments with a hostname serve gRPC. |
+
+A deployment reads these when it starts, so restart running agent deployments after a change.
+Keep `{servingId}` in the template: without it, a deployment deleted and created again under the same name gets the hostname of the old one.
+
+The cluster needs two things the chart does not create:
+
+- **A wildcard DNS record**, `*.<domain>`, pointing at the external address of the gateway that serves inference.
+  With [Envoy Gateway][envoy-gateway] on, that is the Envoy Gateway's own Service, which you expose with `kserve.envoyGateway.service.type` set to `LoadBalancer` or `NodePort`, see *Expose the Gateway directly* under [Cluster requirements][envoy-gateway-requirements].
+  Through Istio's forward to Envoy Gateway, the hostnames are reachable over HTTP only, unless Istio's own certificate covers `*.<domain>`.
+  With Envoy Gateway off, the record points at the Istio ingress gateway.
+- **A certificate for `*.<domain>`**, in the Secret `tls.secretName`.
+  A wildcard certificate needs a DNS-01 solver or a CA issuer in cert-manager, because the HTTP-01 challenge cannot issue one.
+
+With Envoy Gateway on, the chart adds a listener for `*.<domain>` to the Gateway, `agents-https` on port 443, or `agents-http` on port 80 without a certificate.
+With it off, the same server is added to the Istio ingress gateway; Hopsworks 5.4 removes Istio, so plan the DNS record for Envoy Gateway.
 
 ## Calling an agent over A2A from Python
 
@@ -415,18 +626,18 @@ async def ask():
             print(event.task.status.state)
 ```
 
-The base URL is the one the deployment page shows under *A2A*, and the key is an [API key][how-to-create-an-api-key] with the `SERVING` scope.
+The base URL is the one the deployment page shows under *A2A*, `https://<host>` for a deployment with a [hostname][a2a-agent-hostnames], and the key is an [API key][how-to-create-an-api-key] with the `SERVING` scope.
+For the gRPC binding, see [gRPC][a2a-grpc].
 
 ## What this release covers
 
-The manifest describes the agent's A2A face under `capabilities.custom.hopsworks.a2a`: the bindings, `task_store`, `private`, `push_notifications`, `extended_card`, `signed`, `serialize_context` and `retry_lost_tasks`.
+The manifest describes the agent's A2A face under `capabilities.custom.hopsworks.a2a`: the bindings, `task_store`, `private`, `push_notifications`, `extended_card`, `signed`, `serialize_context`, `retry_lost_tasks`, `grpc`, `hostname`, `public_card` and, without a hostname, `hostname_off`.
 It says `a2a: {enabled: false, reason: "sdk_missing"}` when the `a2a-sdk` package is not installed, and `reason: "no_database"` when the deployment has [no database for its tasks][a2a-task-store].
-gRPC, per-agent hostnames and a client for calling other agents from a handler are not in this release.
+A client for calling other agents from a handler is not in this release.
 
 !!! note "Not yet available"
 
     - Completing an OAuth authorization that an agent asked for with `AUTH_REQUIRED` through a Hopsworks callback.
-    - Callback keys on clusters whose inference gateway is Envoy Gateway.
     - Tooling to rotate the card signing key.
 
 ## The Hopsworks extension
