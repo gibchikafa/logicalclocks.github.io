@@ -314,7 +314,7 @@ The cluster's own inference gateway is always listed, so one agent deployment ca
 For that, give the push config a callback key of the receiving deployment as its credential, `{"scheme": "ApiKey", "credentials": "<callback key>"}`.
 A callback key is issued by `POST /hopsworks-api/api/project/{projectId}/serving/{servingId}/agents/callback-key`, which answers `{"key": "...", "expiresAt": "..."}`.
 The key opens only `POST /a2a/notifications` of that deployment, and expires after the task retention period.
-It works on both inference gateways, Istio and [Envoy Gateway][envoy-gateway], and on the deployment's [hostname][a2a-agent-hostnames] as `POST https://<host>/a2a/notifications`.
+It works on both inference gateways, Istio and [Envoy Gateway][envoy-gateway], and on the deployment's [hostname][a2a-agent-hostnames] as `POST https://<host>/a2a/notifications`, that exact path and nothing below it.
 Redirects are not followed.
 
 ### Delivery
@@ -393,6 +393,10 @@ The path form, `https://<inference-lb>/v1/<project-namespace>/<deployment>/...`,
 The card names the hostname's URLs, and its [signature][a2a-extended-card] covers them.
 Without a certificate configured, the hostnames are served over HTTP on port 80, and the URLs start with `http://`.
 
+A deployment that scales to zero when idle is woken by an HTTP request to its hostname on a cluster whose inference gateway is [Envoy Gateway][envoy-gateway].
+On a cluster still on Istio, a request to the hostname goes straight to the agent and does not wake it, and neither does a [gRPC][a2a-grpc] call on either gateway.
+Keep at least one instance running for an agent that is called on its hostname or over gRPC: set `min_instances` to 1 or more in its scaling configuration.
+
 The deployment page shows the hostname and the gRPC endpoint in its *A2A* section.
 The manifest says the same under `capabilities.custom.hopsworks.a2a`: `hostname`, `grpc` and `public_card`.
 A deployment without a hostname keeps the path form, and the manifest says why under `hostname_off`.
@@ -400,7 +404,7 @@ A deployment without a hostname keeps the path form, and the manifest says why u
 | `hostname_off` | Why |
 | --- | --- |
 | `no_domain` | The administrator configured no domain for agents |
-| `knative_mode` | The deployment runs in Knative mode on a cluster whose inference gateway is [Envoy Gateway][envoy-gateway], where Knative-mode deployments stay on Istio |
+| `knative_mode` | The deployment runs in Knative mode on a cluster whose inference gateway is [Envoy Gateway][envoy-gateway], where Knative-mode deployments stay on Istio; on Istio a Knative-mode deployment has a hostname, without gRPC |
 | `not_set` | The agent runs locally, or on a Hopsworks version without agent hostnames |
 
 The administrator's side is in [cluster settings][a2a-helm-values].
@@ -431,7 +435,7 @@ A redeploy that leaves `public_card` out keeps the deployment's setting, and a r
 Two conditions make the card public:
 
 - The administrator allows public cards, see [cluster settings][a2a-helm-values].
-  When the cluster does not allow them, `public_card=True` is refused with HTTP `400`, and the switch in the form is disabled with a hint.
+  When the cluster does not allow them, `public_card=True` is refused with HTTP `400` and error code `240087`, and the switch in the form is disabled with a hint.
 - The deployment has a [hostname][a2a-agent-hostnames]: the public card is served only there.
 
 An anonymous caller then gets exactly one thing, `GET https://<host>/.well-known/agent-card.json`, which answers with the public card, the same card an authenticated caller reads, with its signature.
@@ -527,7 +531,7 @@ The same list is served by `GET /hopsworks-api/api/project/{projectId}/agents/ca
 
 - `url` is where other agents reach the deployment: its hostname, or the path form when it has none, in which case `hostname` is `null`.
 - `card` is the public card the running agent serves, which Hopsworks reads from the agent inside the cluster and keeps for 60 seconds.
-- `card` is `null` for an agent that is not running or did not answer in time, and `error` then says why in a few words.
+- `card` is `null` for an agent that is not running or did not answer in time, and `error` then says why in a few words, for example `not running`.
 
 The directory lists the project's agents to its members whether or not their cards are public.
 
@@ -579,7 +583,8 @@ hopsworks:
 | `hopsworks.agents.publicCards.allowed` | `agent_public_cards_allowed` | `false` | Whether a deployment may make its card public. |
 | `hopsworks.agents.grpc.enabled` | `agent_grpc_enabled` | `true` | Whether Standard-mode agent deployments with a hostname serve gRPC. |
 
-A deployment reads these when it starts, so restart running agent deployments after a change.
+A deployment's hostname, routes, environment and ports are set when it starts or is updated, so restart running agent deployments after a change of these values or of the Envoy Gateway switch.
+Until then a running deployment keeps what it started with.
 Keep `{servingId}` in the template: without it, a deployment deleted and created again under the same name gets the hostname of the old one.
 
 The cluster needs two things the chart does not create:
